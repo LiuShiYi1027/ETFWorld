@@ -4,6 +4,10 @@ on:
   push:
     tags: ['v*']
 
+# 发布 Release 需要写权限（新仓库默认 GITHUB_TOKEN 只读）
+permissions:
+  contents: write
+
 jobs:
   build-macos:
     runs-on: macos-latest
