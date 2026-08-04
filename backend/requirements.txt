@@ -1,0 +1,21 @@
+# ETFWorld 后端依赖
+sqlalchemy>=2.0
+tushare>=1.2.89
+pandas>=1.5
+python-dotenv>=1.0
+fastapi>=0.100
+uvicorn>=0.23
+requests>=2.28
+
+# 桌面版（可选，仅打包/运行 desktop.py 需要）
+pywebview>=5.0
+pyinstaller>=6.0
+pillow>=10.0
+
+# Python 3.9 on macOS needs the last PyObjC release with prebuilt wheels.
+pyobjc-core==11.1; sys_platform == 'darwin' and python_version < '3.10'
+pyobjc-framework-Cocoa==11.1; sys_platform == 'darwin' and python_version < '3.10'
+pyobjc-framework-WebKit==11.1; sys_platform == 'darwin' and python_version < '3.10'
+pyobjc-framework-Quartz==11.1; sys_platform == 'darwin' and python_version < '3.10'
+pyobjc-framework-Security==11.1; sys_platform == 'darwin' and python_version < '3.10'
+pyobjc-framework-UniformTypeIdentifiers==11.1; sys_platform == 'darwin' and python_version < '3.10'

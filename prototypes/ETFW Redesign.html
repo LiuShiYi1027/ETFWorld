@@ -1,0 +1,1443 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  ETFW Redesign · 重设计静态原型（设计评审用，非生产代码）
+  日期：2026-07-21
+  说明：
+  - 本文件是 ETFWorld 产品重设计的静态 HTML mock，仅用于设计评审。
+  - 单文件自包含：内联 <style> + 内联 <script>，无任何外部网络请求
+    （不引 Google Fonts / CDN / echarts；图表均为纯 CSS/SVG 示意）。
+  - 视觉语言沿用 frontend/index.html：同一组设计令牌（:root 变量）、
+    组件词汇（.band .kpi .chip .wl-row .bt-tip .ck-card .band-head
+    .titlerow .toolbar .seg 等），新组件按同一语言扩展。
+  - 全部为内置 mock 数据，数字仅供演示，不构成任何投资建议。
+  - 页面入口：默认进入「今天 TODAY」；#onboarding 进入首启向导；
+    右上角 ⚙ 菜单可进入「空状态演示 / 首启向导」。
+  ============================================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETFW Redesign · 网格策略终端（重设计原型）</title>
+<style>
+:root{
+  --bg:#0E1216; --bg2:#11161C; --panel:#161C24; --panel2:#1A212B;
+  --line:#1b212a; --line2:#232A33; --line3:#2A323C;
+  --text:#D7DEE7; --muted:#8B95A3; --faint:#7E8896;
+  --green:#45C76A; --red:#F05B50; --amber:#E2A93C; --grey:#767F8D; --blue:#5C9BF0;
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:'IBM Plex Sans','PingFang SC','Microsoft YaHei',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:13px;min-height:100vh;-webkit-font-smoothing:antialiased;}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums;}
+.up{text-transform:uppercase;letter-spacing:.08em;}
+.g{color:var(--green);}.r{color:var(--red);}.a{color:var(--amber);}.m{color:var(--muted);}.f{color:var(--faint);}.b{color:var(--blue);}
+::-webkit-scrollbar{width:10px;height:10px;}::-webkit-scrollbar-thumb{background:var(--line2);border-radius:6px;}::-webkit-scrollbar-track{background:var(--bg2);}
+
+/* ---------- status bar（沿用现版） ---------- */
+header{display:flex;align-items:stretch;height:46px;border-bottom:1px solid var(--line2);background:var(--bg2);position:sticky;top:0;z-index:30;}
+.app-id{display:flex;align-items:center;gap:10px;padding:0 18px;border-right:1px solid var(--line);font-family:var(--mono);font-weight:700;font-size:14px;letter-spacing:.06em;}
+.app-id .sq{width:14px;height:14px;background:var(--green);display:inline-block;border-radius:3px;}
+.app-id b{color:#fff;}
+nav{display:flex;}
+nav button{font-family:var(--mono);font-size:12px;letter-spacing:.05em;color:var(--muted);background:none;border:none;border-right:1px solid var(--line);
+  padding:0 15px;cursor:pointer;transition:.12s;position:relative;white-space:nowrap;}
+nav button:hover{color:var(--text);background:var(--panel);}
+nav button.active{color:#fff;background:var(--panel2);}
+nav button.active::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--green);}
+nav button .zh{font-family:var(--sans);font-weight:600;margin-right:5px;}
+.statusright{margin-left:auto;display:flex;align-items:center;}
+.sb{display:flex;align-items:center;gap:8px;padding:0 16px;border-left:1px solid var(--line);font-family:var(--mono);font-size:12px;color:var(--muted);height:100%;}
+.sb .ind{width:8px;height:8px;background:var(--green);display:inline-block;border-radius:50%;}
+.sb b{color:var(--text);}
+.gearwrap{position:relative;height:100%;}
+.gearbtn{height:100%;padding:0 16px;border:none;border-left:1px solid var(--line);background:none;color:var(--muted);font-size:15px;cursor:pointer;transition:.12s;}
+.gearbtn:hover{color:var(--text);background:var(--panel);}
+.gear-menu{position:absolute;top:47px;right:0;width:220px;background:var(--panel2);border:1px solid var(--line3);border-radius:8px;box-shadow:0 18px 44px rgba(0,0,0,.55);z-index:70;display:none;overflow:hidden;}
+.gear-menu.show{display:block;}
+.gear-menu button{display:flex;width:100%;align-items:center;gap:10px;padding:11px 14px;background:none;border:none;border-bottom:1px solid var(--line);color:var(--muted);font-family:var(--mono);font-size:12px;cursor:pointer;text-align:left;}
+.gear-menu button:last-child{border-bottom:none;}
+.gear-menu button:hover{background:var(--panel);color:var(--text);}
+.gear-menu .gm-zh{font-family:var(--sans);}
+.proto-tag{position:fixed;top:52px;right:0;background:var(--amber);color:#1a1205;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.08em;padding:3px 12px;z-index:25;border-bottom-left-radius:6px;}
+
+main{max-width:1480px;margin:0 auto;padding:0;}
+@keyframes fade{from{transform:translateY(6px);}to{transform:translateY(0);}}
+section.page{display:none;}
+section.page.on{display:block;animation:fade .3s ease;}
+@media(prefers-reduced-motion:reduce){section.page.on{animation:none;}}
+
+/* bands / titles（沿用现版） */
+.band{padding:16px 22px;border-bottom:1px solid var(--line);}
+.band-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;}
+.band-head .t{font-family:var(--mono);font-size:12.5px;font-weight:600;letter-spacing:.1em;color:var(--text);}
+.band-head .t .bar{color:var(--green);margin-right:8px;}
+.band-head .d{color:var(--faint);font-size:11.5px;font-family:var(--mono);}
+.band-head .d b{color:var(--muted);}
+.titlerow{display:flex;align-items:baseline;gap:14px;padding:18px 22px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap;}
+.titlerow h1{font-family:var(--mono);font-size:18px;font-weight:600;letter-spacing:.04em;color:#fff;white-space:nowrap;}
+.titlerow .desc{color:var(--muted);font-size:12px;line-height:1.5;}
+.titlerow .desc code{font-family:var(--mono);color:var(--amber);}
+.titlerow .spacer{flex:1;}
+
+/* KPI strip（沿用现版 + c6 密排） */
+.kpibar{display:grid;border-bottom:1px solid var(--line2);}
+.kpibar.c4{grid-template-columns:repeat(4,1fr);}.kpibar.c5{grid-template-columns:repeat(5,1fr);}.kpibar.c6{grid-template-columns:repeat(6,1fr);}
+.kpi{padding:14px 18px;border-right:1px solid var(--line);position:relative;border-left:2px solid transparent;}
+.kpi:last-child{border-right:none;}
+.kpi.go{border-left-color:var(--green);}.kpi.maybe{border-left-color:var(--amber);}
+.kpi.wait{border-left-color:var(--grey);}.kpi.no{border-left-color:var(--red);}
+.kpi .lab{font-family:var(--mono);font-size:11px;letter-spacing:.07em;color:var(--muted);display:flex;align-items:center;gap:7px;}
+.kpi .sq{width:7px;height:7px;display:inline-block;border-radius:2px;}
+.kpi.go .sq{background:var(--green);}.kpi.maybe .sq{background:var(--amber);}
+.kpi.wait .sq{background:var(--grey);}.kpi.no .sq{background:var(--red);}
+.kpi .v{font-family:var(--mono);font-size:26px;font-weight:600;margin-top:8px;line-height:1;letter-spacing:-.01em;}
+.kpi .v.sm{font-size:20px;}
+.kpi.go .v{color:var(--green);}.kpi.maybe .v{color:var(--amber);}.kpi.no .v{color:var(--red);}
+.kpi .foot{font-size:11px;color:var(--faint);margin-top:7px;font-family:var(--mono);}
+
+/* split（沿用现版） */
+.split{display:grid;grid-template-columns:1.7fr 1fr;}
+.split.even{grid-template-columns:1fr 1fr;}
+.split > div{border-right:1px solid var(--line);}
+.split > div:last-child{border-right:none;}
+@media(max-width:1040px){.split,.split.even{grid-template-columns:1fr;}.split>div{border-right:none;border-bottom:1px solid var(--line);}}
+
+/* watchlist rows（沿用现版） */
+.wl-row{display:grid;grid-template-columns:26px 1fr auto 20px;align-items:center;gap:11px;padding:11px 4px;border-bottom:1px solid var(--line);cursor:pointer;transition:.12s;border-radius:6px;}
+.wl-row:hover{background:var(--panel);}
+.wl-row:last-child{border-bottom:none;}
+.wl-rank{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--bg);background:var(--green);width:22px;height:22px;display:flex;align-items:center;justify-content:center;border-radius:5px;}
+.wl-row.r2 .wl-rank{background:#37A957;color:#fff;}.wl-row.r3 .wl-rank{background:#2B8645;color:#fff;}
+.wl-name{font-size:13.5px;font-weight:500;}
+.wl-meta{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:3px;}
+.wl-score{font-family:var(--mono);text-align:right;}
+.wl-score .v{font-size:18px;font-weight:600;color:var(--green);}
+.wl-score .l{font-size:10px;color:var(--faint);letter-spacing:.08em;}
+.wl-arr{font-family:var(--mono);color:var(--faint);font-size:14px;text-align:right;}
+.wl-row:hover .wl-arr{color:var(--green);}
+
+/* toolbar / seg（沿用现版） */
+.toolbar{display:flex;align-items:center;border:1px solid var(--line2);width:max-content;border-radius:6px;overflow:hidden;}
+.seg{display:flex;}
+.seg button{font-family:var(--mono);font-size:11.5px;letter-spacing:.04em;color:var(--muted);background:var(--panel);border:none;border-right:1px solid var(--line);padding:7px 14px;cursor:pointer;transition:.12s;}
+.seg button:last-child{border-right:none;}
+.seg button:hover{color:var(--text);}
+.seg button.on{background:var(--panel2);color:var(--green);}
+
+/* table（沿用现版） */
+table{width:100%;border-collapse:collapse;}
+thead th{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:500;text-align:right;padding:9px 12px;border-bottom:1px solid var(--line2);border-top:1px solid var(--line2);white-space:nowrap;background:var(--bg2);}
+thead th:first-child,thead th.l{text-align:left;}
+tbody td{padding:9px 12px;text-align:right;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12.5px;}
+tbody td:first-child,tbody td.l{text-align:left;}
+tbody td.sans{font-family:var(--sans);}
+tbody tr.clk{cursor:pointer;}
+tbody tr.clk:hover{background:var(--panel);}
+tbody tr:last-child td{border-bottom:none;}
+.idx-name{font-weight:500;font-size:13px;}
+.idx-code{font-family:var(--mono);color:var(--faint);font-size:10.5px;margin-top:1px;}
+.cat{font-family:var(--mono);font-size:11px;color:var(--muted);}
+.scorewrap{display:inline-flex;align-items:center;gap:9px;justify-content:flex-end;}
+.scorebar{width:50px;height:5px;background:var(--line);position:relative;border-radius:3px;overflow:hidden;}
+.scorebar i{display:block;height:100%;}
+.scoreval{font-weight:600;width:38px;text-align:right;}
+.chip{font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;padding:2px 7px;border:1px solid;white-space:nowrap;border-radius:4px;}
+.chip.go{color:var(--green);border-color:rgba(69,199,106,.5);background:rgba(69,199,106,.1);}
+.chip.maybe{color:var(--amber);border-color:rgba(226,169,60,.5);background:rgba(226,169,60,.1);}
+.chip.wait{color:var(--grey);border-color:rgba(118,127,141,.5);background:rgba(118,127,141,.12);}
+.chip.no{color:var(--red);border-color:rgba(240,91,80,.5);background:rgba(240,91,80,.1);}
+.chip.blue{color:var(--blue);border-color:rgba(92,155,240,.5);background:rgba(92,155,240,.1);}
+.foot-note{font-family:var(--mono);color:var(--faint);font-size:11px;margin-top:14px;line-height:1.75;}
+
+/* forms / buttons（沿用现版） */
+.formgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:0;border:1px solid var(--line2);border-bottom:none;border-radius:7px 7px 0 0;overflow:hidden;}
+.field{padding:10px 14px;border-bottom:1px solid var(--line2);border-right:1px solid var(--line);}
+.field label{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;}
+.field input,.field select{width:100%;background:var(--bg);border:1px solid var(--line2);color:var(--text);font-family:var(--mono);font-size:13px;padding:6px 8px;outline:none;transition:.12s;border-radius:5px;}
+.field input:focus,.field select:focus{border-color:var(--green);}
+.btn{font-family:var(--mono);font-size:12px;letter-spacing:.04em;padding:8px 16px;border:1px solid var(--line2);background:var(--panel2);color:var(--text);cursor:pointer;transition:.12s;border-radius:6px;white-space:nowrap;}
+.btn:hover{border-color:var(--line3);background:var(--line);}
+.btn.primary{background:rgba(69,199,106,.12);border-color:rgba(69,199,106,.5);color:var(--green);}
+.btn.primary:hover{background:rgba(69,199,106,.2);}
+.btn.danger{color:var(--red);border-color:rgba(240,91,80,.4);}
+.btn.danger:hover{background:rgba(240,91,80,.12);}
+.btn.sm{padding:4px 10px;font-size:11px;}
+.btnrow{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--green);outline-offset:1px;border-radius:4px;}
+
+/* cockpit cards（沿用现版） */
+.ck-grid{display:grid;grid-template-columns:1.35fr 1fr;gap:14px;padding:0 14px 22px;}
+.ck-col{display:flex;flex-direction:column;gap:14px;min-width:0;}
+.ck-card{background:var(--panel);border:1px solid var(--line2);border-radius:9px;overflow:hidden;}
+.ck-head{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-bottom:1px solid var(--line2);}
+.ck-head .t{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.07em;color:var(--text);display:flex;align-items:center;gap:8px;}
+.ck-head .t .bar{color:var(--green);}
+.ck-head .d{font-family:var(--mono);font-size:10.5px;color:var(--faint);}
+.ck-more{font-family:var(--mono);font-size:10.5px;color:var(--green);cursor:pointer;background:none;border:1px solid var(--line3);border-radius:5px;padding:4px 9px;}
+.ck-more:hover{background:var(--green);color:#06140b;}
+.ck-row{display:flex;align-items:center;gap:11px;padding:11px 14px;border-bottom:1px solid var(--line);}
+.ck-row:last-child{border-bottom:none;}
+.ck-row.clk{cursor:pointer;}
+.ck-row.clk:hover{background:var(--bg2);}
+.ck-rank{font-family:var(--mono);font-size:11px;font-weight:600;color:#06140b;width:20px;height:20px;border-radius:5px;display:flex;align-items:center;justify-content:center;flex:none;background:var(--green);}
+.ck-nm{font-size:13px;font-weight:500;color:var(--text);}
+.ck-sub{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-top:2px;}
+.ck-sc{font-family:var(--mono);font-weight:600;text-align:right;}
+.ck-empty{padding:24px 14px;text-align:center;color:var(--faint);font-size:12px;}
+@media(max-width:900px){.ck-grid{grid-template-columns:1fr;}}
+
+/* bt-tip（沿用现版） */
+.bt-tip{display:flex;gap:11px;align-items:flex-start;margin:0 14px 14px;padding:12px 14px;border-radius:9px;border:1px solid rgba(226,169,60,.4);background:rgba(226,169,60,.08);font-size:12.5px;line-height:1.6;color:var(--text);}
+.bt-tip .ic{color:var(--amber);font-size:15px;line-height:1.3;flex:none;}
+.bt-tip b{color:var(--amber);}
+
+/* ticker（沿用现版） */
+.ticker{display:flex;align-items:center;border-top:1px solid var(--line2);background:var(--bg2);height:30px;font-family:var(--mono);font-size:11px;color:var(--muted);position:sticky;bottom:0;z-index:20;overflow:hidden;}
+.ticker .seg2{padding:0 16px;border-right:1px solid var(--line);height:100%;display:flex;align-items:center;gap:7px;white-space:nowrap;}
+.ticker .seg2 b{color:var(--text);}
+
+/* toast（沿用现版：细边框 + 前置状态方块，可带动作按钮） */
+#toast{position:fixed;bottom:46px;left:50%;transform:translateX(-50%) translateY(16px);opacity:0;display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line3);padding:11px 16px;font-family:var(--mono);font-size:12px;transition:.22s ease;max-width:86vw;z-index:80;border-radius:7px;pointer-events:none;}
+#toast::before{content:'';width:7px;height:7px;border-radius:2px;background:var(--green);flex:none;}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto;}
+#toast.warn-t::before{background:var(--amber);}
+#toast.err::before{background:var(--red);}
+#toast b{color:var(--amber);}
+#toast .t-act{border:1px solid var(--green);background:rgba(69,199,106,.12);color:var(--green);font-family:var(--mono);font-size:11px;padding:4px 10px;border-radius:5px;cursor:pointer;}
+#toast .t-act:hover{background:var(--green);color:#06140b;}
+
+/* ============ 新组件（同一语言扩展） ============ */
+/* 今日待办 BUY/SELL 徽标 */
+.badge{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.06em;padding:2px 8px;border-radius:4px;border:1px solid;}
+.badge.buy{color:var(--green);border-color:rgba(69,199,106,.55);background:rgba(69,199,106,.12);}
+.badge.sell{color:var(--red);border-color:rgba(240,91,80,.55);background:rgba(240,91,80,.12);}
+.dist-pill{font-family:var(--mono);font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;}
+.dist-pill.hot{background:rgba(240,91,80,.14);color:var(--red);}
+.dist-pill.warm{background:rgba(226,169,60,.14);color:var(--amber);}
+
+/* 三盏预警灯 */
+.alarms{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:0 14px;}
+@media(max-width:1000px){.alarms{grid-template-columns:1fr;}}
+.alarm{background:var(--panel);border:1px solid var(--line2);border-left:3px solid var(--grey);border-radius:9px;padding:13px 15px;}
+.alarm.crit{border-left-color:var(--red);}
+.alarm.warnl{border-left-color:var(--amber);}
+.alarm-h{display:flex;align-items:center;gap:9px;}
+.alarm-dot{width:9px;height:9px;border-radius:50%;flex:none;}
+.alarm.crit .alarm-dot{background:var(--red);box-shadow:0 0 8px rgba(240,91,80,.7);}
+.alarm.warnl .alarm-dot{background:var(--amber);box-shadow:0 0 8px rgba(226,169,60,.6);}
+.alarm-t{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.08em;}
+.alarm.crit .alarm-t{color:var(--red);}.alarm.warnl .alarm-t{color:var(--amber);}
+.alarm-body{margin-top:9px;font-size:12.5px;line-height:1.65;color:var(--text);}
+.alarm-body .mono{font-size:11.5px;color:var(--muted);}
+.alarm-act{display:flex;gap:9px;margin-top:11px;align-items:center;flex-wrap:wrap;}
+.alarm .btn.sm{font-size:11px;}
+
+/* 破网处置三选一 */
+.brk-opts{display:none;margin-top:11px;flex-direction:column;gap:8px;}
+.brk-opts.show{display:flex;}
+.brk-opt{border:1px solid var(--line2);border-radius:8px;padding:10px 12px;cursor:pointer;transition:.12s;background:var(--bg2);}
+.brk-opt:hover{border-color:var(--line3);}
+.brk-opt.sel{border-color:var(--green);background:rgba(69,199,106,.07);}
+.brk-opt.sel.dangersel{border-color:var(--red);background:rgba(240,91,80,.07);}
+.brk-opt .ot{font-family:var(--mono);font-size:12px;font-weight:700;display:flex;align-items:center;gap:8px;}
+.brk-opt .ot .rad{width:11px;height:11px;border-radius:50%;border:1px solid var(--line3);flex:none;position:relative;}
+.brk-opt.sel .ot .rad{border-color:var(--green);}
+.brk-opt.sel .ot .rad::after{content:'';position:absolute;inset:2px;border-radius:50%;background:var(--green);}
+.brk-opt.sel.dangersel .ot .rad{border-color:var(--red);}
+.brk-opt.sel.dangersel .ot .rad::after{background:var(--red);}
+.brk-opt .cons{display:none;margin-top:8px;font-size:11.5px;line-height:1.65;color:var(--muted);border-top:1px dashed var(--line2);padding-top:8px;}
+.brk-opt.sel .cons{display:block;}
+.brk-opt .cons b{color:var(--text);}
+
+/* 档位执行状态棋盘 */
+.board{display:flex;gap:6px;flex-wrap:wrap;}
+.cell{width:58px;height:58px;border-radius:7px;border:1px solid var(--line2);background:var(--bg2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-family:var(--mono);}
+.cell .gno{font-size:11px;font-weight:700;}
+.cell .gst{font-size:9px;letter-spacing:.05em;color:var(--faint);}
+.cell.st-wait{background:var(--bg2);color:var(--faint);border-style:dashed;}
+.cell.st-hold{background:rgba(69,199,106,.16);border-color:var(--green);color:var(--green);}
+.cell.st-hold .gst{color:var(--green);}
+.cell.st-sold{background:rgba(118,127,141,.13);border-color:var(--grey);color:var(--grey);}
+.cell.st-sold .gst{color:var(--grey);}
+.cell.st-keep{background:rgba(226,169,60,.15);border-color:var(--amber);color:var(--amber);}
+.cell.st-keep .gst{color:var(--amber);}
+.board-legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-family:var(--mono);font-size:11px;color:var(--muted);}
+.board-legend span{display:flex;align-items:center;gap:6px;}
+.board-legend i{width:11px;height:11px;border-radius:3px;display:inline-block;border:1px solid;}
+
+/* 计划健康条（现价位置标尺） */
+.ruler{position:relative;height:44px;margin:6px 4px 0;}
+.ruler .track{position:absolute;left:0;right:0;top:18px;height:6px;border-radius:3px;background:linear-gradient(90deg,rgba(240,91,80,.35),rgba(226,169,60,.3),rgba(69,199,106,.3));}
+.ruler .tick{position:absolute;top:13px;width:1px;height:16px;background:var(--line3);}
+.ruler .ticklab{position:absolute;top:32px;transform:translateX(-50%);font-family:var(--mono);font-size:9.5px;color:var(--faint);white-space:nowrap;}
+.ruler .cur{position:absolute;top:2px;transform:translateX(-50%);text-align:center;}
+.ruler .cur .pin{width:3px;height:26px;background:#fff;border-radius:2px;margin:0 auto;box-shadow:0 0 0 2px var(--bg);}
+.ruler .cur .curlab{font-family:var(--mono);font-size:10px;font-weight:700;color:#fff;background:var(--panel2);border:1px solid var(--line3);border-radius:4px;padding:1px 7px;margin-bottom:3px;display:inline-block;}
+
+/* 右侧抽屉（指数详情） */
+#backdrop{position:fixed;inset:0;background:rgba(8,11,14,.5);z-index:64;opacity:0;pointer-events:none;transition:opacity .18s;}
+#backdrop.show{opacity:1;pointer-events:auto;}
+#drawer{position:fixed;top:0;right:0;bottom:0;width:480px;max-width:94vw;background:var(--bg2);border-left:1px solid var(--line3);z-index:65;transform:translateX(102%);transition:transform .22s ease;display:flex;flex-direction:column;box-shadow:-16px 0 50px rgba(0,0,0,.45);}
+#drawer.open{transform:translateX(0);}
+.dr-head{padding:16px 18px;border-bottom:1px solid var(--line2);}
+.dr-hrow{display:flex;align-items:center;gap:10px;}
+.dr-hrow .nm{font-size:17px;font-weight:600;color:#fff;}
+.dr-hrow .cd{font-family:var(--mono);font-size:11px;color:var(--faint);}
+.dr-x{margin-left:auto;width:26px;height:26px;border:1px solid var(--line3);background:var(--panel);color:var(--muted);border-radius:6px;cursor:pointer;font-size:12px;}
+.dr-x:hover{color:var(--text);}
+.dr-chips{display:flex;gap:8px;margin-top:11px;flex-wrap:wrap;}
+.dr-body{flex:1;overflow-y:auto;padding:16px 18px 20px;}
+.dr-sec{margin-bottom:20px;}
+.dr-sec .st{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--text);margin-bottom:11px;}
+.dr-sec .st .bar{color:var(--green);margin-right:7px;}
+.dr-foot{padding:12px 18px;border-top:1px solid var(--line2);display:flex;gap:10px;}
+.dr-foot .btn{flex:1;text-align:center;}
+.kv2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.kv2 .it{background:var(--panel);border:1px solid var(--line2);border-radius:8px;padding:9px 11px;}
+.kv2 .k{font-size:10.5px;color:var(--muted);font-family:var(--mono);letter-spacing:.04em;}
+.kv2 .vv{font-family:var(--mono);font-size:15px;font-weight:600;margin-top:4px;}
+.kv2 .vv small{font-size:10px;color:var(--faint);font-weight:400;}
+/* 估值带 */
+.vband{display:grid;grid-template-columns:64px 1fr 56px;align-items:center;gap:10px;padding:6px 0;}
+.vband .vl{font-family:var(--mono);font-size:11px;color:var(--muted);}
+.vband .vt{height:9px;background:var(--line);border-radius:4px;position:relative;overflow:hidden;}
+.vband .vt i{display:block;height:100%;border-radius:4px;}
+.vband .vv{font-family:var(--mono);font-size:11.5px;font-weight:600;text-align:right;}
+/* AI 研判展开块 */
+.ai-block{border:1px solid rgba(69,199,106,.35);background:rgba(69,199,106,.05);border-radius:9px;padding:13px 15px;margin-top:12px;display:none;}
+.ai-block.show{display:block;}
+.ai-block .ai-t{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--green);letter-spacing:.08em;display:flex;align-items:center;gap:8px;}
+.ai-block .ai-sec{margin-top:11px;}
+.ai-block .ai-k{font-family:var(--mono);font-size:10px;color:var(--amber);letter-spacing:.08em;margin-bottom:4px;}
+.ai-block .ai-p{font-size:12.5px;line-height:1.75;color:var(--text);}
+.ai-block .ai-p.mute{color:var(--muted);}
+.ai-block .ai-disc{margin-top:12px;font-size:10px;color:var(--faint);line-height:1.6;border-top:1px dashed var(--line2);padding-top:9px;}
+
+/* 安全线标尺 */
+.safe-wrap{padding:6px 4px 0;}
+.safe-scale{position:relative;height:12px;border-radius:6px;background:var(--line);overflow:visible;margin-top:26px;}
+.safe-fill{position:absolute;left:0;top:0;bottom:0;border-radius:6px;background:rgba(69,199,106,.55);}
+.safe-warnline{position:absolute;top:-5px;bottom:-5px;width:0;border-left:2px dashed var(--red);}
+.safe-warnlab{position:absolute;top:-24px;transform:translateX(-50%);font-family:var(--mono);font-size:10px;color:var(--red);white-space:nowrap;}
+.safe-ptr{position:absolute;top:-8px;transform:translateX(-50%);text-align:center;}
+.safe-ptr .pv{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--green);background:var(--panel2);border:1px solid var(--green);border-radius:5px;padding:2px 9px;}
+.safe-ptr .pd{width:2px;height:14px;background:var(--green);margin:2px auto 0;}
+.safe-ticks{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:9px;}
+
+/* 三账户占比条 */
+.acct-bar{display:flex;height:34px;border-radius:8px;overflow:hidden;border:1px solid var(--line2);}
+.acct-bar i{display:block;height:100%;}
+.acct-legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:13px;}
+.acct-leg{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);}
+.acct-leg .sw{width:10px;height:10px;border-radius:3px;flex:none;}
+.acct-leg .pc{font-family:var(--mono);color:var(--muted);font-size:11px;}
+
+/* 空状态 */
+.empty3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:0 14px 22px;}
+@media(max-width:1000px){.empty3{grid-template-columns:1fr;}}
+.empty-card{background:var(--panel);border:1px dashed var(--line3);border-radius:10px;padding:26px 20px;text-align:center;}
+.empty-card .ic{font-family:var(--mono);font-size:22px;color:var(--faint);}
+.empty-card .et{font-family:var(--mono);font-size:13px;font-weight:700;margin-top:12px;color:var(--text);letter-spacing:.06em;}
+.empty-card .ed{font-size:12.5px;color:var(--muted);line-height:1.75;margin-top:9px;}
+.empty-card .btn{margin-top:15px;}
+
+/* 弹层（资金流水表单） */
+#modal{position:fixed;inset:0;z-index:75;background:rgba(8,11,14,.55);display:none;align-items:center;justify-content:center;}
+#modal.show{display:flex;}
+.modal-card{width:min(440px,92vw);background:var(--bg2);border:1px solid var(--line3);border-radius:10px;box-shadow:0 18px 44px rgba(0,0,0,.55);overflow:hidden;}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--line2);}
+.modal-head .t{font-family:var(--mono);font-size:12.5px;font-weight:700;letter-spacing:.08em;}
+.modal-body{padding:16px;}
+.modal-foot{display:flex;gap:10px;justify-content:flex-end;padding:13px 16px;border-top:1px solid var(--line2);}
+
+/* 首启向导 */
+#onboard{position:fixed;inset:0;z-index:90;background:var(--bg);display:none;overflow-y:auto;}
+#onboard.show{display:block;}
+.ob-wrap{max-width:600px;margin:0 auto;padding:56px 20px 90px;}
+.ob-brand{display:flex;align-items:center;gap:11px;font-family:var(--mono);font-weight:700;font-size:17px;letter-spacing:.06em;}
+.ob-brand .sq{width:16px;height:16px;border-radius:4px;background:var(--green);}
+.ob-brand b{color:#fff;}
+.ob-steps{display:flex;gap:8px;margin:30px 0 24px;}
+.ob-dot{flex:1;height:4px;border-radius:2px;background:var(--line2);position:relative;}
+.ob-dot.done{background:var(--green);}
+.ob-dot.cur{background:var(--amber);}
+.ob-card{background:var(--panel);border:1px solid var(--line2);border-radius:14px;padding:26px 26px;}
+.ob-kick{font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--green);}
+.ob-h{font-size:22px;font-weight:700;color:#fff;margin-top:9px;line-height:1.4;}
+.ob-p{font-size:14.5px;color:var(--muted);line-height:1.85;margin-top:13px;}
+.ob-p b{color:var(--text);}
+.ob-disc{border:1px solid var(--line2);background:var(--bg2);border-radius:10px;padding:14px 16px;margin-top:18px;font-size:12.5px;color:var(--muted);line-height:1.8;max-height:150px;overflow-y:auto;}
+.ob-check{display:flex;gap:10px;align-items:flex-start;margin-top:16px;cursor:pointer;user-select:none;font-size:13.5px;color:var(--text);}
+.ob-check input{display:none;}
+.ob-check .cb{width:17px;height:17px;border:1px solid var(--line3);border-radius:4px;flex:none;position:relative;background:var(--bg);margin-top:1px;}
+.ob-check input:checked + .cb{background:var(--green);border-color:var(--green);}
+.ob-check input:checked + .cb::after{content:'';position:absolute;left:5px;top:2px;width:5px;height:9px;border:solid #06140b;border-width:0 2px 2px 0;transform:rotate(45deg);}
+.ob-actions{display:flex;gap:11px;margin-top:24px;}
+.ob-btn{flex:1;font-family:var(--sans);font-size:15px;font-weight:700;padding:13px;border-radius:10px;border:1px solid var(--line2);background:var(--panel2);color:var(--text);cursor:pointer;}
+.ob-btn.primary{background:var(--green);border-color:var(--green);color:#06140b;}
+.ob-btn.primary:hover{filter:brightness(1.07);}
+.ob-btn:disabled{opacity:.4;cursor:default;}
+.ob-field label{display:block;font-size:13px;color:var(--muted);margin-bottom:7px;}
+.ob-field input{width:100%;background:var(--bg);border:1px solid var(--line2);border-radius:9px;color:var(--text);font-family:var(--mono);font-size:15px;padding:11px 13px;outline:none;}
+.ob-field input:focus{border-color:var(--green);}
+.ob-link{font-family:var(--mono);font-size:12px;color:var(--green);margin-top:9px;display:inline-block;cursor:pointer;}
+.ob-testrow{display:flex;align-items:center;gap:12px;margin-top:16px;}
+.ob-test{font-family:var(--mono);font-size:12.5px;padding:9px 16px;border-radius:8px;border:1px solid var(--green);background:rgba(69,199,106,.1);color:var(--green);cursor:pointer;}
+.ob-teststat{font-family:var(--mono);font-size:12px;color:var(--muted);}
+.ob-teststat.ok{color:var(--green);}
+.ob-prog{height:10px;border-radius:5px;background:var(--line);overflow:hidden;margin-top:18px;}
+.ob-prog i{display:block;height:100%;width:0;background:var(--green);border-radius:5px;transition:width .25s;}
+.ob-plog{font-family:var(--mono);font-size:11.5px;color:var(--muted);margin-top:12px;line-height:2;min-height:66px;}
+.ob-plog .ok{color:var(--green);}
+
+/* plan detail ops / misc */
+.oprow{display:flex;gap:10px;flex-wrap:wrap;}
+.statline{display:flex;gap:22px;flex-wrap:wrap;font-family:var(--mono);font-size:11.5px;color:var(--muted);}
+.statline b{color:var(--text);font-size:13px;}
+</style>
+</head>
+<body>
+<header>
+  <div class="app-id"><span class="sq"></span> ETF<b>W</b></div>
+  <nav id="nav" aria-label="主导航">
+    <button data-tab="today" class="active"><span class="zh">今天</span>TODAY</button>
+    <button data-tab="picks"><span class="zh">机会</span>PICKS</button>
+    <button data-tab="planner"><span class="zh">规划</span>PLANNER</button>
+    <button data-tab="plans"><span class="zh">计划</span>PLANS</button>
+    <button data-tab="portfolio"><span class="zh">组合</span>PORTFOLIO</button>
+    <button data-tab="review"><span class="zh">复盘</span>REVIEW</button>
+  </nav>
+  <div class="statusright">
+    <div class="sb" id="mkt"><span class="ind"></span> MKT OPEN <b>14:35</b></div>
+    <div class="sb">AS OF <b>2026-07-21</b></div>
+    <div class="gearwrap">
+      <button class="gearbtn" id="gearbtn" title="设置与原型演示" aria-label="设置">⚙</button>
+      <div class="gear-menu" id="gearmenu">
+        <button onclick="menuGo('states')">▦ <span class="gm-zh">空状态演示</span> STATES</button>
+        <button onclick="menuGo('onboarding')">⇢ <span class="gm-zh">首启向导</span> ONBOARDING</button>
+        <button onclick="menuAbout()">ⓘ <span class="gm-zh">关于本原型</span></button>
+      </div>
+    </div>
+  </div>
+</header>
+<div class="proto-tag">REDESIGN PROTO · 2026-07-21 · 评审用非生产</div>
+
+<main>
+<!-- ==================== 页 1 · 今天 TODAY ==================== -->
+<section class="page on" id="page-today">
+  <div class="titlerow">
+    <h1>今天 TODAY</h1>
+    <div class="desc">驾驶舱 v2 · 待办驱动 —— 打开先看「今天要做什么」，再看组合与机会。</div>
+    <div class="spacer"></div>
+    <div class="desc mono" style="font-family:var(--mono);">2026-07-21 周二 · 收盘前 25 分钟</div>
+  </div>
+
+  <!-- 今日待办（核心） -->
+  <div style="padding:16px 14px 0;">
+    <div class="ck-card">
+      <div class="ck-head">
+        <div class="t"><span class="bar">▌</span>今日待办 TODO · 临近触发档位</div>
+        <div class="d">距现价 &lt;2% 入列 · 4 条</div>
+      </div>
+      <table>
+        <thead>
+          <tr><th class="l">方向</th><th class="l">标的</th><th>档位价</th><th>份额</th><th>金额</th><th class="l">所属计划</th><th>距触发</th><th class="l">操作</th></tr>
+        </thead>
+        <tbody>
+          <tr class="clk" onclick="toast('已标记：待手动下单（演示）')">
+            <td class="l"><span class="badge sell">SELL</span></td>
+            <td class="l sans"><span class="idx-name">沪深300ETF</span><div class="idx-code">510300</div></td>
+            <td>4.680</td><td>2,200</td><td>¥10,296</td>
+            <td class="l sans" style="font-family:var(--sans);">300网格 v2.0</td>
+            <td><span class="dist-pill hot">0.6%</span></td>
+            <td class="l"><button class="btn sm">知道了</button></td>
+          </tr>
+          <tr class="clk" onclick="toast('已标记：待手动下单（演示）')">
+            <td class="l"><span class="badge buy">BUY</span></td>
+            <td class="l sans"><span class="idx-name">红利ETF</span><div class="idx-code">510880</div></td>
+            <td>2.831</td><td>3,500</td><td>¥9,909</td>
+            <td class="l sans" style="font-family:var(--sans);">红利网格 v1.0</td>
+            <td><span class="dist-pill warm">1.4%</span></td>
+            <td class="l"><button class="btn sm">知道了</button></td>
+          </tr>
+          <tr class="clk" onclick="toast('已标记：待手动下单（演示）')">
+            <td class="l"><span class="badge buy">BUY</span></td>
+            <td class="l sans"><span class="idx-name">医药ETF</span><div class="idx-code">512010</div></td>
+            <td>0.418</td><td>24,000</td><td>¥10,032</td>
+            <td class="l sans" style="font-family:var(--sans);">医药网格 v1.0</td>
+            <td><span class="dist-pill warm">1.2%</span></td>
+            <td class="l"><button class="btn sm">知道了</button></td>
+          </tr>
+          <tr class="clk" onclick="toast('已标记：待手动下单（演示）')">
+            <td class="l"><span class="badge sell">SELL</span></td>
+            <td class="l sans"><span class="idx-name">沪深300ETF</span><div class="idx-code">510300</div></td>
+            <td>4.740</td><td>2,100</td><td>¥9,954</td>
+            <td class="l sans" style="font-family:var(--sans);">300网格 v2.0</td>
+            <td><span class="dist-pill warm">1.9%</span></td>
+            <td class="l"><button class="btn sm">知道了</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="foot-note" style="padding:0 14px 13px;">// 演示数据：每行 价×量=额；距触发 = |档位价 − 现价| / 现价，&lt;2% 入列。网格不自动下单，待办只负责提醒，纪律由你执行。</div>
+    </div>
+  </div>
+
+  <!-- 三盏预警灯 -->
+  <div style="padding:16px 14px 0;">
+    <div class="band-head" style="padding:0 2px;">
+      <div class="t"><span class="bar">▌</span>预警灯 ALERTS · 3 盏待处理</div>
+      <div class="d">破网 <b>1</b> · 高位运行 <b>1</b> · 估值越界 <b>1</b></div>
+    </div>
+    <div class="alarms" style="padding:0;">
+      <!-- ① 破网 -->
+      <div class="alarm crit">
+        <div class="alarm-h"><span class="alarm-dot"></span><span class="alarm-t">破网 BROKEN</span><span class="chip no" style="margin-left:auto;">证券网格 v1.0</span></div>
+        <div class="alarm-body">
+          证券ETF 现价 <b class="mono r">0.842</b>，已跌破最低档 G10 <span class="mono">0.868</span>（网外 <span class="mono r">-3.0%</span>）。
+          <div class="mono" style="margin-top:4px;">// 网格已失效：不会再产生新买卖，需人工选择处置方式。</div>
+        </div>
+        <div class="alarm-act">
+          <button class="btn sm danger" onclick="toggleBrk('brk-today')">处置 ▸</button>
+        </div>
+        <div class="brk-opts" id="brk-today">
+          <div class="brk-opt" onclick="selBrk(this)">
+            <div class="ot"><span class="rad"></span>装死持有 HOLD</div>
+            <div class="cons">持仓不再买卖，等价格回到网内（≥0.868）自动恢复网格。代价：期间 <b>无网格收益</b>，资金被占用；好处：不确认亏损，不追加投入。</div>
+          </div>
+          <div class="brk-opt" onclick="selBrk(this)">
+            <div class="ot"><span class="rad"></span>向下接网 EXTEND</div>
+            <div class="cons">以现价 0.842 为新基准向下补挂新格。需 <b>追加资金约 ¥36,000</b>，摊低成本、延续套利；代价：单一品种敞口加大，若继续下跌占用更多本金。</div>
+          </div>
+          <div class="brk-opt" onclick="selBrk(this,true)">
+            <div class="ot"><span class="rad"></span>止损归档 STOP</div>
+            <div class="cons">按现价卖出全部网格持仓，<b>确认亏损约 ¥-6,420</b>，计划转入 CLOSED 归档。代价：亏损落地；好处：释放 ¥5.9 万占用资金，结束纪律消耗。</div>
+          </div>
+        </div>
+      </div>
+      <!-- ② 高位运行 -->
+      <div class="alarm warnl">
+        <div class="alarm-h"><span class="alarm-dot"></span><span class="alarm-t">高位运行 HIGH</span><span class="chip maybe" style="margin-left:auto;">红利网格 v1.0</span></div>
+        <div class="alarm-body">
+          红利ETF 现价 <b class="mono a">3.072</b>，高于基准价 <span class="mono">2.980</span>（<span class="mono a">+3.1%</span>），网格整体偏离原位。
+          <div class="mono" style="margin-top:4px;">// 网上方无单可挂：继续上涨将「卖无可卖、买无可买」。</div>
+        </div>
+        <div class="alarm-act">
+          <button class="btn sm" style="color:var(--amber);border-color:rgba(226,169,60,.5);" onclick="rebaseToast()">↑ 上移重开</button>
+        </div>
+      </div>
+      <!-- ③ 估值越界 -->
+      <div class="alarm warnl">
+        <div class="alarm-h"><span class="alarm-dot"></span><span class="alarm-t">估值越界 VAL</span><span class="chip maybe" style="margin-left:auto;">300网格 v2.0</span></div>
+        <div class="alarm-body">
+          沪深300 估值分位 <b class="mono a">87.9%</b>，已涨过 <span class="mono">50%</span> 止盈警戒线。
+          <div class="mono" style="margin-top:4px;">// 建议：买入侧暂停，只卖不买；新增资金勿在此位置开网。</div>
+        </div>
+        <div class="alarm-act">
+          <button class="btn sm" onclick="switchTab('picks')">去机会页看看 →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 组合概览条（压缩 KPI） -->
+  <div style="padding:16px 14px 0;">
+    <div class="kpibar c6" style="border:1px solid var(--line2);border-radius:9px;overflow:hidden;">
+      <div class="kpi static"><div class="lab">总资产 TOTAL</div><div class="v sm">¥34.6万</div><div class="foot">vs 本金 +15.3%</div></div>
+      <div class="kpi static"><div class="lab">本金 PRINCIPAL</div><div class="v sm">¥30万</div><div class="foot">2 笔入金 · 无出金</div></div>
+      <div class="kpi static"><div class="lab">底仓 CORE</div><div class="v sm">8.2万</div><div class="foot">成本口径 · 3 只</div></div>
+      <div class="kpi static"><div class="lab">网格占用 GRID</div><div class="v sm">15.2万</div><div class="foot">2 个计划已投入</div></div>
+      <div class="kpi static"><div class="lab">现金 CASH</div><div class="v sm">6.8万</div><div class="foot">可用弹药</div></div>
+      <div class="kpi go static"><div class="lab"><span class="sq"></span>满格/本金 FULL</div><div class="v sm">51%</div><div class="foot">安全线内 · 阈值 70%</div></div>
+    </div>
+  </div>
+
+  <!-- 次要卡片：机会精选 + 最新成交 -->
+  <div class="ck-grid" style="margin-top:16px;">
+    <div class="ck-col">
+      <div class="ck-card">
+        <div class="ck-head">
+          <div class="t"><span class="bar">▌</span>机会精选 TOP PICKS</div>
+          <button class="ck-more" onclick="switchTab('picks')">全部 →</button>
+        </div>
+        <div class="ck-row clk" onclick="switchTab('picks');openDrawer('bank')">
+          <div class="ck-rank">1</div>
+          <div style="flex:1;min-width:0;">
+            <div class="ck-nm">银行 <span class="chip go" style="margin-left:5px;">适合开启</span></div>
+            <div class="ck-sub">801780 · 估值分位 8.2% · 年化波动 18.4% · 建议格距 4%</div>
+          </div>
+          <div class="ck-sc g">71.5</div>
+        </div>
+        <div class="ck-row clk" onclick="switchTab('picks');openDrawer('hongli')">
+          <div class="ck-rank" style="background:#37A957;">2</div>
+          <div style="flex:1;min-width:0;">
+            <div class="ck-nm">中证红利 <span class="chip go" style="margin-left:5px;">适合开启</span></div>
+            <div class="ck-sub">000922 · 估值分位 22.0% · 年化波动 15.2% · 建议格距 4%</div>
+          </div>
+          <div class="ck-sc g">68.4</div>
+        </div>
+        <div class="ck-row clk" onclick="switchTab('picks');openDrawer('med')">
+          <div class="ck-rank" style="background:#2B8645;">3</div>
+          <div style="flex:1;min-width:0;">
+            <div class="ck-nm">医药生物 <span class="chip maybe" style="margin-left:5px;">可小仓试探</span></div>
+            <div class="ck-sub">801150 · 估值分位 12.6% · 年化波动 24.7% · 建议格距 5%</div>
+          </div>
+          <div class="ck-sc a">63.2</div>
+        </div>
+      </div>
+    </div>
+    <div class="ck-col">
+      <div class="ck-card">
+        <div class="ck-head">
+          <div class="t"><span class="bar">▌</span>最新成交 TRADES</div>
+          <button class="ck-more" onclick="switchTab('plans')">计划 →</button>
+        </div>
+        <div class="ck-row">
+          <span class="badge sell">SELL</span>
+          <div style="flex:1;min-width:0;"><div class="ck-nm">沪深300ETF <span class="f mono" style="font-size:11px;">G3</span></div><div class="ck-sub">07-18 · 3.790 × 2,600 · 300网格 v2.0</div></div>
+          <div class="ck-sc g">+¥518</div>
+        </div>
+        <div class="ck-row">
+          <span class="badge buy">BUY</span>
+          <div style="flex:1;min-width:0;"><div class="ck-nm">红利ETF <span class="f mono" style="font-size:11px;">G1</span></div><div class="ck-sub">07-15 · 2.831 × 3,500 · 红利网格 v1.0</div></div>
+          <div class="ck-sc">¥9,909</div>
+        </div>
+        <div class="ck-row">
+          <span class="badge sell">SELL</span>
+          <div style="flex:1;min-width:0;"><div class="ck-nm">红利ETF <span class="f mono" style="font-size:11px;">G2 · 留存入库</span></div><div class="ck-sub">07-09 · 2.980 × 2,400 · 红利网格 v1.0</div></div>
+          <div class="ck-sc g">+¥698</div>
+        </div>
+        <div class="ck-row">
+          <span class="badge buy">BUY</span>
+          <div style="flex:1;min-width:0;"><div class="ck-nm">证券ETF <span class="f mono" style="font-size:11px;">G10 · 破网前</span></div><div class="ck-sub">07-02 · 0.868 × 11,500 · 证券网格 v1.0</div></div>
+          <div class="ck-sc">¥9,982</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 页 2 · 机会 PICKS ==================== -->
+<section class="page" id="page-picks">
+  <div class="titlerow">
+    <h1>机会 PICKS</h1>
+    <div class="desc">雷达 + 估值合并视图：先评分排序，再点行进抽屉看估值带与 AI 研判。结论是研究信号，<code>不构成投资建议</code>。</div>
+    <div class="spacer"></div>
+    <div class="toolbar"><div class="seg" id="picks-seg">
+      <button class="on">全部</button><button onclick="toast('筛选演示：仅显示 适合开启/可试探')">可开网</button><button onclick="toast('筛选演示：仅显示行业指数')">行业</button>
+    </div></div>
+  </div>
+  <div class="band">
+    <div class="band-head">
+      <div class="t"><span class="bar">▌</span>监控指数评分 SCOREBOARD</div>
+      <div class="d">评分 = 估值 40% + 波动 30% + 动量 20% + 流动性 10% · 降序 · 更新于 <b>2026-07-21 13:00</b></div>
+    </div>
+    <table id="radar-tbl">
+      <thead>
+        <tr><th class="l">#</th><th class="l">名称</th><th class="l">类别</th><th>估值分位</th><th>年化波动</th><th>建议格距</th><th>评分</th><th class="l">结论</th><th class="l nos"></th></tr>
+      </thead>
+      <tbody>
+        <tr class="clk" onclick="openDrawer('bank')">
+          <td class="l f">01</td>
+          <td class="l sans"><span class="idx-name">银行</span><div class="idx-code">801780 · 申万</div></td>
+          <td class="l"><span class="cat">行业</span></td>
+          <td class="g pctnum">8.2%</td><td>18.4%</td><td>4%</td>
+          <td><span class="scorewrap"><span class="scorebar"><i style="width:71.5%;background:var(--green);"></i></span><span class="scoreval g">71.5</span></span></td>
+          <td class="l"><span class="chip go">适合开启</span></td>
+          <td class="l wl-arr">→</td>
+        </tr>
+        <tr class="clk" onclick="openDrawer('hongli')">
+          <td class="l f">02</td>
+          <td class="l sans"><span class="idx-name">中证红利</span><div class="idx-code">000922</div></td>
+          <td class="l"><span class="cat">策略</span></td>
+          <td class="g pctnum">22.0%</td><td>15.2%</td><td>4%</td>
+          <td><span class="scorewrap"><span class="scorebar"><i style="width:68.4%;background:var(--green);"></i></span><span class="scoreval g">68.4</span></span></td>
+          <td class="l"><span class="chip go">适合开启</span></td>
+          <td class="l wl-arr">→</td>
+        </tr>
+        <tr class="clk" onclick="openDrawer('med')">
+          <td class="l f">03</td>
+          <td class="l sans"><span class="idx-name">医药生物</span><div class="idx-code">801150 · 申万</div></td>
+          <td class="l"><span class="cat">行业</span></td>
+          <td class="g pctnum">12.6%</td><td>24.7%</td><td>5%</td>
+          <td><span class="scorewrap"><span class="scorebar"><i style="width:63.2%;background:var(--amber);"></i></span><span class="scoreval a">63.2</span></span></td>
+          <td class="l"><span class="chip maybe">可小仓试探</span></td>
+          <td class="l wl-arr">→</td>
+        </tr>
+        <tr class="clk" onclick="openDrawer('sec')">
+          <td class="l f">04</td>
+          <td class="l sans"><span class="idx-name">证券公司</span><div class="idx-code">399975</div></td>
+          <td class="l"><span class="cat">行业</span></td>
+          <td class="pctnum">31.5%</td><td>32.8%</td><td>6%</td>
+          <td><span class="scorewrap"><span class="scorebar"><i style="width:55.8%;background:var(--grey);"></i></span><span class="scoreval m">55.8</span></span></td>
+          <td class="l"><span class="chip wait">观望</span></td>
+          <td class="l wl-arr">→</td>
+        </tr>
+        <tr class="clk" onclick="openDrawer('star50')">
+          <td class="l f">05</td>
+          <td class="l sans"><span class="idx-name">科创50</span><div class="idx-code">000688</div></td>
+          <td class="l"><span class="cat">宽基</span></td>
+          <td class="pctnum">35.6%</td><td>30.2%</td><td>6%</td>
+          <td><span class="scorewrap"><span class="scorebar"><i style="width:47.9%;background:var(--grey);"></i></span><span class="scoreval m">47.9</span></span></td>
+          <td class="l"><span class="chip wait">观望</span></td>
+          <td class="l wl-arr">→</td>
+        </tr>
+        <tr class="clk" onclick="openDrawer('cyb')">
+          <td class="l f">06</td>
+          <td class="l sans"><span class="idx-name">创业板指</span><div class="idx-code">399006</div></td>
+          <td class="l"><span class="cat">宽基</span></td>
+          <td class="pctnum">41.8%</td><td>28.9%</td><td>6%</td>
+          <td><span class="scorewrap"><span class="scorebar"><i style="width:44.7%;background:var(--grey);"></i></span><span class="scoreval m">44.7</span></span></td>
+          <td class="l"><span class="chip wait">观望</span></td>
+          <td class="l wl-arr">→</td>
+        </tr>
+        <tr class="clk" onclick="openDrawer('zz500')">
+          <td class="l f">07</td>
+          <td class="l sans"><span class="idx-name">中证500</span><div class="idx-code">000905</div></td>
+          <td class="l"><span class="cat">宽基</span></td>
+          <td class="a pctnum">54.2%</td><td>21.5%</td><td>5%</td>
+          <td><span class="scorewrap"><span class="scorebar"><i style="width:38.4%;background:var(--grey);"></i></span><span class="scoreval m">38.4</span></span></td>
+          <td class="l"><span class="chip wait">观望</span></td>
+          <td class="l wl-arr">→</td>
+        </tr>
+        <tr class="clk" onclick="openDrawer('hs300')">
+          <td class="l f">08</td>
+          <td class="l sans"><span class="idx-name">沪深300</span><div class="idx-code">000300</div></td>
+          <td class="l"><span class="cat">宽基</span></td>
+          <td class="r pctnum">87.9%</td><td>17.3%</td><td>4%</td>
+          <td><span class="scorewrap"><span class="scorebar"><i style="width:17.6%;background:var(--red);"></i></span><span class="scoreval r">17.6</span></span></td>
+          <td class="l"><span class="chip no">不建议</span></td>
+          <td class="l wl-arr">→</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="foot-note">// 结论阈值：≥65 适合开启 · 58–65 可小仓试探 · 30–58 观望 · &lt;30 不建议。点击任意行展开右侧「指数详情」抽屉。</div>
+  </div>
+</section>
+<!-- ==================== 页 3 · 规划 PLANNER ==================== -->
+<section class="page" id="page-planner">
+  <div class="titlerow">
+    <h1>规划 PLANNER</h1>
+    <div class="desc">网格规划器：定参数 → 看档位表与压力测试 → 回测验证 → 存为计划。买入价 = 基准价 × (1−格距)ⁱ，卖出价 = 买入价 ÷ (1−格距)。</div>
+  </div>
+  <div class="split">
+    <div>
+      <div class="band">
+        <div class="band-head">
+          <div class="t"><span class="bar">▌</span>参数 PARAMS</div>
+          <div class="d">标的：<b id="pl-target">沪深300ETF 510300</b></div>
+        </div>
+        <div class="formgrid">
+          <div class="field"><label>标的 SYMBOL</label><input value="510300 沪深300ETF" id="f-symbol"></div>
+          <div class="field"><label>基准价 BASE PRICE</label><input value="4.200" id="f-base"></div>
+          <div class="field"><label>格距 STEP %</label><input value="5" id="f-step"></div>
+          <div class="field"><label>格数 GRIDS</label><input value="10" id="f-grids"></div>
+          <div class="field"><label>每格金额 AMOUNT ¥</label><input value="10000" id="f-amt"></div>
+          <div class="field"><label>逐格加码 ADD %</label><input value="10" id="f-add"></div>
+          <div class="field"><label>留利润 KEEP %</label><input value="30" id="f-keep"></div>
+        </div>
+        <div class="btnrow">
+          <button class="btn primary" onclick="renderLadder();toast('已按参数重算档位表')">重算档位</button>
+          <button class="btn" onclick="toast('压力测试演示：曲线图在正式版由 echarts 渲染')">压力测试</button>
+          <button class="btn" onclick="toast('已存为计划草稿（演示）')">存为计划</button>
+        </div>
+      </div>
+      <div class="band">
+        <div class="band-head">
+          <div class="t"><span class="bar">▌</span>压力测试 STRESS</div>
+          <div class="d">假设全部档位买满</div>
+        </div>
+        <div class="kpibar c4" style="border:1px solid var(--line2);border-radius:9px;overflow:hidden;">
+          <div class="kpi maybe static"><div class="lab"><span class="sq"></span>满格资金</div><div class="v sm">¥152,000</div><div class="foot">占本金 51% · 安全线内</div></div>
+          <div class="kpi no static"><div class="lab"><span class="sq"></span>最深跌至</div><div class="v sm">3.107</div><div class="foot">回测区间最低 · -26.0%</div></div>
+          <div class="kpi no static"><div class="lab"><span class="sq"></span>满格浮亏</div><div class="v sm">-8.5%</div><div class="foot">买满后在最深点的浮亏</div></div>
+          <div class="kpi go static"><div class="lab"><span class="sq"></span>可承受</div><div class="v sm">YES</div><div class="foot">现金 6.8万 ≥ 缺口</div></div>
+        </div>
+        <div class="foot-note">// 满格资金按 100 股整数倍取整后的实际占用口径；最深跌至为回测窗口（2023-01 ~ 2026-07）内的最低价，非网格底部（G10 = 2.515）。</div>
+      </div>
+    </div>
+    <div>
+      <div class="band">
+        <div class="band-head">
+          <div class="t"><span class="bar">▌</span>档位表 LADDER · 10 格</div>
+          <div class="d">基准 <b>4.200</b> · 格距 <b>5%</b></div>
+        </div>
+        <table id="ladder-tbl">
+          <thead>
+            <tr><th class="l">格</th><th>跌幅</th><th>买入价</th><th>卖出价</th><th>金额</th><th>份额</th><th>卖出份额</th><th>留存</th><th>预期收益</th></tr>
+          </thead>
+          <tbody id="ladder-body"></tbody>
+        </table>
+        <div class="foot-note">// 金额 = 每格金额 × (1+加码)ⁱ⁻¹；份额按 100 股取整；留存 = 留利润 30% 不卖，转为长期底仓。</div>
+      </div>
+      <div class="band">
+        <div class="band-head">
+          <div class="t"><span class="bar">▌</span>回测摘要 BACKTEST</div>
+          <div class="d">2023-01 ~ 2026-07 · 日线</div>
+        </div>
+        <div class="statline" style="padding:2px 2px 12px;">
+          <span>网格 <b class="a">+0.5%</b></span>
+          <span>持有 <b class="g">+10.8%</b></span>
+          <span>套利 <b>1 次</b></span>
+          <span>资金利用率 <b>0.9%</b></span>
+        </div>
+        <div class="bt-tip" style="margin:0;">
+          <span class="ic">!</span>
+          <div>这段行情网格几乎不成交——<b>涨上去就买不到了</b>。单边上涨里网格跑不赢持有是结构性的，不是参数错了。建议配合<b>底仓 + 留利润</b>：底仓吃趋势，网格吃震荡，留存份额把利润变成长期仓位。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 页 4 · 计划 PLANS ==================== -->
+<section class="page" id="page-plans">
+  <div class="titlerow">
+    <h1>计划 PLANS</h1>
+    <div class="desc">计划 = 参数 + 执行状态 + 成交记录的归档单元。版本号记录参数演进；破网计划需人工处置，不会自动恢复。</div>
+    <div class="spacer"></div>
+    <button class="btn primary" onclick="switchTab('planner')">+ 新建计划</button>
+  </div>
+  <div class="band">
+    <div class="band-head">
+      <div class="t"><span class="bar">▌</span>计划列表 LIST · 4</div>
+      <div class="d">ACTIVE <b>1</b> · PAUSED <b>1</b> · BROKEN <b>1</b> · CLOSED <b>1</b></div>
+    </div>
+    <table>
+      <thead>
+        <tr><th class="l">名称</th><th class="l">标的</th><th>版本</th><th>基准价</th><th>格距</th><th>格数</th><th>满格资金</th><th class="l">状态</th><th class="l nos">操作</th></tr>
+      </thead>
+      <tbody>
+        <tr class="clk" onclick="showPlan('p300')">
+          <td class="l sans"><span class="idx-name">300网格</span></td>
+          <td class="l sans">沪深300ETF <span class="f mono" style="font-size:10.5px;">510300</span></td>
+          <td>v2.0</td><td>4.200</td><td>5%</td><td>10</td><td>¥88,000</td>
+          <td class="l"><span class="chip go">ACTIVE</span></td>
+          <td class="l" onclick="event.stopPropagation();">
+            <button class="btn sm" onclick="showPlan('p300')">VIEW</button>
+            <button class="btn sm" style="color:var(--green);border-color:rgba(69,199,106,.4);" onclick="showPlan('p300',true)">AI</button>
+            <button class="btn sm danger" onclick="toast('删除需二次确认（演示）','err')">DEL</button>
+          </td>
+        </tr>
+        <tr class="clk" onclick="showPlan('p510880')">
+          <td class="l sans"><span class="idx-name">红利网格</span></td>
+          <td class="l sans">红利ETF <span class="f mono" style="font-size:10.5px;">510880</span></td>
+          <td>v1.0</td><td>2.980</td><td>5%</td><td>10</td><td>¥64,000</td>
+          <td class="l"><span class="chip maybe">PAUSED</span></td>
+          <td class="l" onclick="event.stopPropagation();">
+            <button class="btn sm" onclick="showPlan('p510880')">VIEW</button>
+            <button class="btn sm" style="color:var(--green);border-color:rgba(69,199,106,.4);" onclick="showPlan('p510880',true)">AI</button>
+            <button class="btn sm danger" onclick="toast('删除需二次确认（演示）','err')">DEL</button>
+          </td>
+        </tr>
+        <tr class="clk" onclick="showPlan('p512880')">
+          <td class="l sans"><span class="idx-name">证券网格</span></td>
+          <td class="l sans">证券ETF <span class="f mono" style="font-size:10.5px;">512880</span></td>
+          <td>v1.0</td><td>1.150</td><td>6%</td><td>10</td><td>¥72,000</td>
+          <td class="l"><span class="chip no">BROKEN</span></td>
+          <td class="l" onclick="event.stopPropagation();">
+            <button class="btn sm" onclick="showPlan('p512880')">VIEW</button>
+            <button class="btn sm" style="color:var(--green);border-color:rgba(69,199,106,.4);" onclick="showPlan('p512880',true)">AI</button>
+            <button class="btn sm danger" onclick="toast('删除需二次确认（演示）','err')">DEL</button>
+          </td>
+        </tr>
+        <tr class="clk" onclick="showPlan('p512010')">
+          <td class="l sans"><span class="idx-name">医药网格</span></td>
+          <td class="l sans">医药ETF <span class="f mono" style="font-size:10.5px;">512010</span></td>
+          <td>v1.0</td><td>0.560</td><td>5%</td><td>8</td><td>¥45,000</td>
+          <td class="l"><span class="chip wait">CLOSED</span></td>
+          <td class="l" onclick="event.stopPropagation();">
+            <button class="btn sm" onclick="showPlan('p512010')">VIEW</button>
+            <button class="btn sm" style="color:var(--green);border-color:rgba(69,199,106,.4);" onclick="showPlan('p512010',true)">AI</button>
+            <button class="btn sm danger" onclick="toast('删除需二次确认（演示）','err')">DEL</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="foot-note">// 满格资金合计（ACTIVE + PAUSED）= ¥88,000 + ¥64,000 = ¥152,000，即组合页安全线的分子；BROKEN 计划不再挂新单，不计入。</div>
+  </div>
+  <!-- 计划详情（由 JS 渲染） -->
+  <div id="plan-detail"></div>
+</section>
+
+<!-- ==================== 页 5 · 组合 PORTFOLIO ==================== -->
+<section class="page" id="page-portfolio">
+  <div class="titlerow">
+    <h1>组合 PORTFOLIO</h1>
+    <div class="desc">三账户视图：底仓吃趋势、网格吃震荡、现金是弹药。回答一个问题 —— <code>若全部网格买满，我的钱够不够？</code></div>
+    <div class="spacer"></div>
+    <button class="btn primary" onclick="openModal()">+ 记一笔资金流水</button>
+  </div>
+
+  <div class="kpibar c5">
+    <div class="kpi static"><div class="lab">本金 PRINCIPAL</div><div class="v">¥30.0万</div><div class="foot">入金 2 笔 · 出金 0 笔</div></div>
+    <div class="kpi go static"><div class="lab"><span class="sq"></span>总资产 TOTAL</div><div class="v">¥34.6万</div><div class="foot">vs 本金 <b class="g">+15.3%</b></div></div>
+    <div class="kpi static"><div class="lab">底仓 CORE</div><div class="v sm">¥9.1万</div><div class="foot">市值口径 · 3 只 · 含留存</div></div>
+    <div class="kpi static"><div class="lab">网格 GRID</div><div class="v sm">¥15.8万</div><div class="foot">市值口径 · 2 个计划</div></div>
+    <div class="kpi static"><div class="lab">现金 CASH</div><div class="v sm">¥6.8万</div><div class="foot">= 本金 − 持仓成本</div></div>
+  </div>
+
+  <div class="band">
+    <div class="band-head">
+      <div class="t"><span class="bar">▌</span>三账户占比 ALLOCATION</div>
+      <div class="d">按市值 · 总资产 ¥346,000</div>
+    </div>
+    <div class="acct-bar">
+      <i style="width:26.3%;background:rgba(92,155,240,.55);" title="底仓 26.3%"></i>
+      <i style="width:45.7%;background:rgba(69,199,106,.55);" title="网格 45.7%"></i>
+      <i style="width:8.4%;background:rgba(226,169,60,.55);" title="留存底仓 8.4%"></i>
+      <i style="width:19.6%;background:rgba(118,127,141,.5);" title="现金 19.6%"></i>
+    </div>
+    <div class="acct-legend">
+      <div class="acct-leg"><span class="sw" style="background:rgba(92,155,240,.55);"></span>底仓 <span class="pc">¥9.1万 · 26.3%</span></div>
+      <div class="acct-leg"><span class="sw" style="background:rgba(69,199,106,.55);"></span>网格持仓 <span class="pc">¥15.8万 · 45.7%</span></div>
+      <div class="acct-leg"><span class="sw" style="background:rgba(226,169,60,.55);"></span>留存底仓（免费） <span class="pc">¥2.9万 · 8.4%</span></div>
+      <div class="acct-leg"><span class="sw" style="background:rgba(118,127,141,.5);"></span>现金 <span class="pc">¥6.8万 · 19.6%</span></div>
+    </div>
+  </div>
+
+  <div class="band">
+    <div class="band-head">
+      <div class="t"><span class="bar">▌</span>安全线 SAFETY · 满格资金 ÷ 本金</div>
+      <div class="d">ACTIVE + PAUSED 计划满格合计 <b>¥152,000</b> ÷ 本金 <b>¥300,000</b></div>
+    </div>
+    <div class="safe-wrap">
+      <div class="safe-scale">
+        <div class="safe-fill" style="width:51%;"></div>
+        <div class="safe-warnline" style="left:70%;"></div>
+        <div class="safe-warnlab" style="left:70%;">警告线 70%</div>
+        <div class="safe-ptr" style="left:51%;"><span class="pv">51%</span><div class="pd"></div></div>
+      </div>
+      <div class="safe-ticks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
+    </div>
+    <div class="foot-note">// 含义：若所有网格按计划买满，需动用本金的 51%，现金 6.8 万 ≥ 缺口 8.4 万，处于安全区。超过 70% 时新建计划会被建议缩减格数或每格金额——破网的代价从来不是浮亏，是没钱补网。</div>
+  </div>
+
+  <div class="split even">
+    <div class="band">
+      <div class="band-head">
+        <div class="t"><span class="bar">▌</span>底仓持仓 CORE POSITIONS</div>
+        <div class="d">plan_id 为空的手工持仓 + 网格留存</div>
+      </div>
+      <table>
+        <thead><tr><th class="l">标的</th><th>份额</th><th>成本</th><th>现价</th><th>市值</th><th>浮盈</th></tr></thead>
+        <tbody>
+          <tr><td class="l sans"><span class="idx-name">沪深300ETF</span><div class="idx-code">510300 · 长期底仓</div></td><td>20,000</td><td>4.010</td><td>4.653</td><td>¥93,060</td><td class="g">+16.0%</td></tr>
+          <tr><td class="l sans"><span class="idx-name">红利ETF</span><div class="idx-code">510880 · 长期底仓</div></td><td>10,000</td><td>2.760</td><td>3.072</td><td>¥30,720</td><td class="g">+11.3%</td></tr>
+          <tr><td class="l sans"><span class="idx-name">证券ETF</span><div class="idx-code">512880 · 网格留存（零成本）</div></td><td>800</td><td>0.000</td><td>0.842</td><td>¥674</td><td class="a">免费</td></tr>
+        </tbody>
+      </table>
+      <div class="foot-note">// 底仓与网格分离：底仓是涨跌都赚钱的主体，网格只是增强。留存份额成本记 0——它们是网格 2.0 每次卖出时留下的利润。</div>
+    </div>
+    <div class="band">
+      <div class="band-head">
+        <div class="t"><span class="bar">▌</span>资金流水 FUND FLOWS</div>
+        <div class="d">本金 = Σ入金 − Σ出金</div>
+      </div>
+      <table>
+        <thead><tr><th class="l">日期</th><th class="l">方向</th><th>金额</th><th class="l">备注</th><th class="l nos"></th></tr></thead>
+        <tbody>
+          <tr><td class="l">2026-06-10</td><td class="l"><span class="badge buy">入金</span></td><td>¥100,000</td><td class="l sans" style="color:var(--muted);">年中增资</td><td class="l"><button class="btn sm danger" onclick="toast('删除流水需二次确认（演示）','err')">DEL</button></td></tr>
+          <tr><td class="l">2026-01-05</td><td class="l"><span class="badge buy">入金</span></td><td>¥200,000</td><td class="l sans" style="color:var(--muted);">初始本金</td><td class="l"><button class="btn sm danger" onclick="toast('删除流水需二次确认（演示）','err')">DEL</button></td></tr>
+        </tbody>
+      </table>
+      <div class="foot-note">// 现金余额 = 本金 ¥300,000 − 持仓成本 ¥232,000 = ¥68,000。出金会降低本金口径，安全线随之收紧。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 页 6 · 复盘 REVIEW ==================== -->
+<section class="page" id="page-review">
+  <div class="titlerow">
+    <h1>复盘 REVIEW</h1>
+    <div class="desc">网格的钱是一格一格套利攒出来的。复盘回答三个问题：赚了多少、纪律执行得怎样、下周怎么办。</div>
+    <div class="spacer"></div>
+    <button class="btn primary" onclick="toggleWeekly()">✦ AI 周报复述</button>
+  </div>
+
+  <div class="kpibar c4">
+    <div class="kpi go static"><div class="lab"><span class="sq"></span>套利回合 ROUNDS</div><div class="v">23</div><div class="foot">买→卖 记 1 回合 · 全部计划</div></div>
+    <div class="kpi go static"><div class="lab"><span class="sq"></span>已实现收益 REALIZED</div><div class="v">¥8,930</div><div class="foot">含手续费 -¥46</div></div>
+    <div class="kpi maybe static"><div class="lab"><span class="sq"></span>留存底仓 KEPT</div><div class="v">¥2.9万</div><div class="foot">零成本份额市值 · 网格2.0</div></div>
+    <div class="kpi no static"><div class="lab"><span class="sq"></span>纪律违约 MISSED</div><div class="v sm">3 次</div><div class="foot">该买没买 2 · 该卖没卖 1</div></div>
+  </div>
+
+  <!-- AI 周报复述（演示展开） -->
+  <div style="padding:16px 14px 0;">
+    <div class="ai-block" id="weekly">
+      <div class="ai-t">✦ AI 周报复述 · 2026-W29（07-13 ~ 07-19）<span class="chip go" style="margin-left:auto;">kimi-k2 · 实时生成</span></div>
+      <div class="ai-sec"><div class="ai-k">本周做了什么</div>
+        <div class="ai-p">本周组合套利成交 3 笔，落袋 ¥1,216：300网格在 4.42 完成 G1 卖出，红利网格 G2 卖出并留存 400 股。现金占比维持 20%，弹药充足。证券网格仍处破网状态，本周无新动作——这是正确的，处置决定不该被市场波动催着做。</div></div>
+      <div class="ai-sec"><div class="ai-k">纪律检查</div>
+        <div class="ai-p">07-15 红利ETF 触及 G1 买入价 2.831，成交记录显示当日已买入，执行到位；07-17 医药ETF 距 G2 买点仅 0.8% 但未挂单，属「险守纪律」。建议把「今日待办」纳入开盘前例行查看。</div></div>
+      <div class="ai-sec"><div class="ai-k">下周关注</div>
+        <div class="ai-p mute">沪深300 估值分位 87.9%，处于雷达否决区，300网格维持「只卖不买」；银行指数分位 8.2%、波动 18.4%，若回调延续可评估开新网。以上为数据复述，不构成投资建议。</div></div>
+      <div class="ai-disc">// AI 定位是研究助手：复述数据、提示纪律，不给买卖指令。周报每周日收盘后生成，按（周， 组合快照）缓存。</div>
+    </div>
+  </div>
+
+  <div class="band" style="margin-top:16px;">
+    <div class="band-head">
+      <div class="t"><span class="bar">▌</span>分计划复盘 BY PLAN</div>
+      <div class="d">回合 = 一次完整的买→卖 · 含已归档计划</div>
+    </div>
+    <table>
+      <thead><tr><th class="l">计划</th><th>版本</th><th>套利回合</th><th>已实现</th><th>留存底仓</th><th>该买没买</th><th>该卖没卖</th><th class="l">状态</th></tr></thead>
+      <tbody>
+        <tr class="clk" onclick="switchTab('plans');showPlan('p300')">
+          <td class="l sans"><span class="idx-name">300网格</span><div class="idx-code">510300</div></td>
+          <td>v2.0</td><td>12</td><td class="g">+¥5,240</td><td class="a">800 股 · ¥3,722</td><td>1</td><td>0</td>
+          <td class="l"><span class="chip go">ACTIVE</span></td>
+        </tr>
+        <tr class="clk" onclick="switchTab('plans');showPlan('p510880')">
+          <td class="l sans"><span class="idx-name">红利网格</span><div class="idx-code">510880</div></td>
+          <td>v1.0</td><td>8</td><td class="g">+¥3,012</td><td class="a">400 股 · ¥1,229</td><td>0</td><td>1</td>
+          <td class="l"><span class="chip maybe">PAUSED</span></td>
+        </tr>
+        <tr class="clk" onclick="switchTab('plans');showPlan('p512880')">
+          <td class="l sans"><span class="idx-name">证券网格</span><div class="idx-code">512880</div></td>
+          <td>v1.0</td><td>3</td><td class="g">+¥678</td><td class="f">—</td><td class="r">2</td><td>0</td>
+          <td class="l"><span class="chip no">BROKEN</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="foot-note">// 纪律判定：日线穿越档位价（±1% 容差）且 7 个交易日内无对应方向成交，记 1 次违约。网格收益 = 无数量级的小钱 × 次数 × 纪律——违约次数是比收益率更先看的指标。</div>
+  </div>
+
+  <div class="band">
+    <div class="band-head">
+      <div class="t"><span class="bar">▌</span>收益构成 BREAKDOWN</div>
+      <div class="d">网格套利 vs 底仓浮盈 vs 留存</div>
+    </div>
+    <div class="acct-bar" style="height:28px;">
+      <i style="width:19%;background:rgba(69,199,106,.55);"></i>
+      <i style="width:63%;background:rgba(92,155,240,.5);"></i>
+      <i style="width:18%;background:rgba(226,169,60,.55);"></i>
+    </div>
+    <div class="acct-legend">
+      <div class="acct-leg"><span class="sw" style="background:rgba(69,199,106,.55);"></span>网格已实现 <span class="pc">¥8,930 · 19%</span></div>
+      <div class="acct-leg"><span class="sw" style="background:rgba(92,155,240,.5);"></span>底仓浮盈 <span class="pc">¥29,300 · 63%</span></div>
+      <div class="acct-leg"><span class="sw" style="background:rgba(226,169,60,.55);"></span>留存浮盈 <span class="pc">¥8,400 · 18%</span></div>
+    </div>
+    <div class="foot-note">// 这段上涨市里 63% 的收益来自底仓——再次印证：底仓吃趋势，网格吃震荡，两者不是竞争关系。</div>
+  </div>
+</section>
+
+<!-- ==================== 页 7 · 空状态 STATES（原型演示页） ==================== -->
+<section class="page" id="page-states">
+  <div class="titlerow">
+    <h1>空状态 EMPTY STATES</h1>
+    <div class="desc">开源用户首见之脸：每种"什么都没有"的时刻都要给出下一步，而不是一张白纸。（本页为原型演示集合）</div>
+  </div>
+  <div class="empty3" style="margin-top:16px;">
+    <div class="empty-card">
+      <div class="ic">▪▪▪</div>
+      <div class="et">还没有估值数据</div>
+      <div class="ed">ETFWorld 的一切分析从指数估值开始。<br>配置 Tushare Token 并回填历史数据后，<br>机会页才会亮起。</div>
+      <button class="btn primary" onclick="openOnboard()">进入首启向导 →</button>
+    </div>
+    <div class="empty-card">
+      <div class="ic">▦</div>
+      <div class="et">还没有网格计划</div>
+      <div class="ed">从一只"低估 + 有波动 + 不死"的指数开始，<br>用规划器生成你的第一张网格。<br>也可以先拿示例计划熟悉玩法。</div>
+      <button class="btn primary" onclick="switchTab('planner')">去规划 →</button>
+      <button class="btn" onclick="toast('已生成示例计划：红利ETF · 5%×10 格（演示）')">一键示例计划</button>
+    </div>
+    <div class="empty-card">
+      <div class="ic">⇄</div>
+      <div class="et">还没有成交记录</div>
+      <div class="ed">网格不自动下单。在券商成交后回来记一笔，<br>系统会自动匹配档位、更新棋盘与留存。</div>
+      <button class="btn" onclick="toast('打开录入成交表单（演示）')">录入第一笔 →</button>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- 底部 ticker -->
+<div class="ticker">
+  <div class="seg2">ETFW <b>REDESIGN PROTO</b></div>
+  <div class="seg2">沪深300 <b class="r">4,653.21 +0.8%</b></div>
+  <div class="seg2">中证红利 <b class="g">5,482.10 -0.3%</b></div>
+  <div class="seg2">银行 <b class="g">6,214.55 -1.1%</b></div>
+  <div class="seg2">待办 <b>4</b></div>
+  <div class="seg2">预警 <b class="a">3</b></div>
+  <div class="seg2" style="border-right:none;">数据日期 <b>2026-07-21</b></div>
+</div>
+
+<!-- toast -->
+<div id="toast" role="status"></div>
+
+<!-- 指数详情抽屉 -->
+<div id="backdrop" onclick="closeDrawer()"></div>
+<aside id="drawer" aria-label="指数详情">
+  <div class="dr-head">
+    <div class="dr-hrow"><span class="nm" id="dr-name">—</span><span class="cd" id="dr-code">—</span><button class="dr-x" onclick="closeDrawer()" aria-label="关闭">✕</button></div>
+    <div class="dr-chips" id="dr-chips"></div>
+  </div>
+  <div class="dr-body">
+    <div class="dr-sec">
+      <div class="st"><span class="bar">▌</span>估值带 VALUATION BAND</div>
+      <div id="dr-bands"></div>
+      <div class="foot-note" style="margin-top:8px;">// 分位越低越便宜；3y/5y 与 10y/全历史背离本身即是信息。</div>
+    </div>
+    <div class="dr-sec">
+      <div class="st"><span class="bar">▌</span>关键数据 KEY METRICS</div>
+      <div class="kv2" id="dr-kv"></div>
+    </div>
+    <div class="dr-sec">
+      <div class="st"><span class="bar">▌</span>AI 研判 REVIEW</div>
+      <button class="btn" style="color:var(--green);border-color:rgba(69,199,106,.4);" onclick="toggleDrAi()">✦ 生成研判（演示）</button>
+      <div class="ai-block" id="dr-ai"></div>
+    </div>
+  </div>
+  <div class="dr-foot">
+    <button class="btn primary" onclick="closeDrawer();switchTab('planner');toast('已把标的带入规划器（演示）')">以此标的去规划 →</button>
+  </div>
+</aside>
+
+<!-- 资金流水弹层 -->
+<div id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-card">
+    <div class="modal-head"><div class="t">记一笔资金流水 FUND FLOW</div><button class="dr-x" onclick="closeModal()" aria-label="关闭">✕</button></div>
+    <div class="modal-body">
+      <div class="formgrid" style="border-radius:7px;overflow:hidden;">
+        <div class="field"><label>日期 DATE</label><input value="2026-07-21" id="mf-date"></div>
+        <div class="field"><label>方向 DIRECTION</label><select id="mf-dir"><option>入金 deposit</option><option>出金 withdraw</option></select></div>
+        <div class="field"><label>金额 AMOUNT ¥</label><input value="50000" id="mf-amt"></div>
+        <div class="field"><label>备注 NOTE</label><input placeholder="可选" id="mf-note"></div>
+      </div>
+      <div class="foot-note">// 本金 = Σ入金 − Σ出金；现金 = 本金 − 持仓成本。流水只记账，不动银行卡。</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn primary" onclick="closeModal();toast('已保存资金流水（演示）· 本金与安全线已更新')">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 首启向导 ONBOARDING -->
+<div id="onboard">
+  <div class="ob-wrap">
+    <div class="ob-brand"><span class="sq"></span> ETF<b>W</b> <span class="f" style="font-weight:400;font-size:12px;letter-spacing:.1em;">GRID TERMINAL · 网格策略终端</span></div>
+    <div class="ob-steps"><div class="ob-dot" id="ob-d1"></div><div class="ob-dot" id="ob-d2"></div><div class="ob-dot" id="ob-d3"></div></div>
+
+    <!-- 屏 1：欢迎 + 免责 -->
+    <div class="ob-card" id="ob-s1">
+      <div class="ob-kick">WELCOME · 第 1 步 / 共 3 步</div>
+      <div class="ob-h">低估买入 · 波动套利 ·<br>不死标的 · 机械执行</div>
+      <div class="ob-p">ETFWorld 是一个<b>本地优先</b>的网格策略研究工具：看估值位置 → 找可交易 ETF → 设计网格 → 压力测试 → 记录执行与复盘。它<b>不连接券商、不自动下单</b>，数据和密钥都在你自己的电脑上。</div>
+      <div class="ob-disc">使用须知：ETFWorld 仅用于学习与辅助研究，不构成任何投资建议。估值分位、网格评分、回测结果与 AI 内容均基于历史数据与公开信息，不代表未来表现。市场有风险，投资决策与盈亏由使用者自行承担。外部数据源（Tushare 等）的可用性与准确性由数据提供方负责。</div>
+      <label class="ob-check"><input type="checkbox" id="ob-agree"><span class="cb"></span>我已阅读并理解：本工具不构成投资建议，盈亏自负。</label>
+      <div class="ob-actions">
+        <button class="ob-btn" onclick="closeOnboard(true)">先看看再说</button>
+        <button class="ob-btn primary" id="ob-next1" disabled onclick="obGo(2)">同意并继续 →</button>
+      </div>
+    </div>
+
+    <!-- 屏 2：配置 Tushare -->
+    <div class="ob-card" id="ob-s2" style="display:none;">
+      <div class="ob-kick">DATA SOURCE · 第 2 步 / 共 3 步</div>
+      <div class="ob-h">接入你的数据源</div>
+      <div class="ob-p">估值数据来自 Tushare Pro。Token 只保存在本机 <b>backend/.env</b>，不会上传到任何服务器。没有 Token？去官网免费注册一个即可。</div>
+      <div class="ob-field" style="margin-top:18px;">
+        <label>TUSHARE TOKEN</label>
+        <input placeholder="粘贴你的 Token" id="ob-token">
+      </div>
+      <span class="ob-link" onclick="toast('正式版将打开 tushare.pro 注册页（演示）')">↗ 去 tushare.pro 免费获取 Token</span>
+      <div class="ob-testrow">
+        <button class="ob-test" onclick="obTest()">测试连接</button>
+        <span class="ob-teststat" id="ob-teststat">未测试</span>
+      </div>
+      <div class="ob-actions">
+        <button class="ob-btn" onclick="obGo(3)">跳过，稍后再配</button>
+        <button class="ob-btn primary" id="ob-next2" disabled onclick="obGo(3)">保存并继续 →</button>
+      </div>
+    </div>
+
+    <!-- 屏 3：回填数据 -->
+    <div class="ob-card" id="ob-s3" style="display:none;">
+      <div class="ob-kick">BACKFILL · 第 3 步 / 共 3 步</div>
+      <div class="ob-h">回填历史估值</div>
+      <div class="ob-p">首次使用需要回填一段历史行情（用于计算估值分位与波动率）。这一步只需做一次，之后每天增量更新。历史回填可能消耗你的 Tushare 接口额度。</div>
+      <button class="ob-test" id="ob-bfbtn" onclick="obBackfill()">开始回填（约 1-3 分钟）</button>
+      <div class="ob-prog"><i id="ob-prog"></i></div>
+      <div class="ob-plog" id="ob-plog">等待开始…</div>
+      <div class="ob-actions">
+        <button class="ob-btn" onclick="closeOnboard(true)">跳过，进系统看看</button>
+        <button class="ob-btn primary" id="ob-next3" disabled onclick="obFinish()">完成，去机会页 →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================= 基础 ================= */
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+function switchTab(name){
+  $$('nav button[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
+  $$('section.page').forEach(s=>s.classList.toggle('on',s.id==='page-'+name));
+  window.scrollTo({top:0});
+}
+$$('nav button[data-tab]').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
+
+/* toast（支持动作按钮） */
+function toast(msg,type,act){
+  const t=$('#toast');t.className='';if(type==='err')t.classList.add('err');else if(type==='warn')t.classList.add('warn-t');
+  t.innerHTML=`<span>${msg}</span>`;
+  if(act){const b=document.createElement('button');b.className='t-act';b.textContent=act.label;b.onclick=()=>{t.classList.remove('show');act.fn();};t.appendChild(b);}
+  requestAnimationFrame(()=>t.classList.add('show'));
+  clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),act?6000:3400);
+}
+
+/* 预警：破网处置 / 上移重开 */
+function toggleBrk(id){$('#'+id).classList.toggle('show');}
+function selBrk(el,danger){
+  [...el.parentElement.children].forEach(c=>c.classList.remove('sel','dangersel'));
+  el.classList.add('sel');if(danger)el.classList.add('dangersel');
+  const name=el.querySelector('.ot').textContent.trim();
+  setTimeout(()=>toast(`已选择处置：<b>${name}</b>（演示）· 计划状态与提醒将随之更新`,danger?'warn':''),250);
+}
+function rebaseToast(){
+  toast('⚠️ <b>中证红利</b> 当前估值分位 <b>22.0%</b>（雷达：适合开启），可以上移重开','warn',
+    {label:'确认上移',fn:()=>toast('已上移重开 · 新基准价 <b>3.072</b>，旧计划已归档 CLOSED（演示）')});
+}
+
+/* ================= 指数详情抽屉 ================= */
+const IDX={
+  bank:{name:'银行',code:'801780 · 申万一级',cat:'行业',level:'go',verdict:'适合开启',pct:8.2,vol:'18.4%',step:'4%',score:71.5,
+    pe:'5.84',peMed:'6.92',pb:'0.62',pbMed:'0.84',r20:'-3.1%',r60:'-8.4%',r120:'-12.6%',dist:'-15.8%',
+    bands:[['3年',6.4],['5年',8.2],['10年',11.5],['全历史',18.3]],
+    ai:{one:'深度低估叠加充分回摆，是教科书式的开网窗口。',
+      detail:'银行指数 5 年 PE 分位仅 8.2%，意味着过去五年 92% 的时间估值都比现在贵；PB 0.62 倍处于历史极值区，安全垫足够厚。3y 与 10y 分位接近（6.4% vs 11.5%），说明低估是全周期共识而非短期假象。\n年化波动 18.4% 对网格偏温和，建议格距取建议值 4% 而非 5%，以提高成交频率。\n需要清醒的是：银行的低波动来自盈利稳定而非弹性，网格赚的是"震荡的钱"，对单次套利的幅度预期要放低，靠次数取胜。',
+      reasons:['估值分位 8.2%，深度低估区，安全垫厚','PB 0.62 倍，破净幅度历史罕见','多周期分位一致低，非短期错杀','波动 18.4% 温和，格距宜偏小'],
+      risks:['低估可长期维持（价值陷阱），网格收益依赖耐心','银行盈利受息差收窄压制，估值中枢可能下移'],
+      hint:'格距 4% × 10 格，留利润 30%'}},
+  hongli:{name:'中证红利',code:'000922',cat:'策略',level:'go',verdict:'适合开启',pct:22.0,vol:'15.2%',step:'4%',score:68.4,
+    pe:'7.31',peMed:'8.85',pb:'0.81',pbMed:'0.98',r20:'-1.2%',r60:'-4.0%',r120:'-6.8%',dist:'-9.4%',
+    bands:[['3年',19.8],['5年',22.0],['10年',26.4],['全历史',31.0]],
+    ai:{one:'低估 + 低波 + 高股息，适合作为底仓型网格的首选。',
+      detail:'红利指数 5 年分位 22%，处于偏低区间；成分股以高分红央国企为主，"不死"属性是监控池里最强的一档。\n年化波动 15.2% 偏低，单次网格利润薄，建议格距 4% 并搭配留利润 30-50%，把每一次套利沉淀为吃股息的底仓。\n注意 3y 分位（19.8%）低于 10y（26.4%），近三年估值中枢在下移，属于"越来越便宜"的良性低估。',
+      reasons:['分位 22% 偏低，且有股息率托底','成分股央国企为主，不死属性最强','3y 分位低于 10y，估值中枢下移是机会'],
+      risks:['红利风格若持续跑输成长，网格占用时间长','低波动使套利频率低，收益主要靠积累'],
+      hint:'格距 4% × 10 格，留利润 50%'}},
+  med:{name:'医药生物',code:'801150 · 申万一级',cat:'行业',level:'maybe',verdict:'可小仓试探',pct:12.6,vol:'24.7%',step:'5%',score:63.2,
+    pe:'28.4',peMed:'34.1',pb:'2.86',pbMed:'3.52',r20:'+2.4%',r60:'-6.1%',r120:'-18.9%',dist:'-24.3%',
+    bands:[['3年',9.8],['5年',12.6],['10年',18.9],['全历史',35.2]],
+    ai:{one:'低估与波动兼备，但行业政策扰动多，宜小仓位起步。',
+      detail:'医药 5 年分位 12.6%，处于低估区；年化波动 24.7% 意味着网格成交机会多，是"低估 + 波动"组合里性价比较高的标的。\n但需注意：全历史分位（35.2%）明显高于 5 年（12.6%），说明医药行业近年经历了估值中枢下移——集采等政策重塑了盈利预期。这类行业网格要防"低估之后还有更低"。\n建议小仓位试探：每格金额减半，格数加深到 12-14 格，覆盖更深跌幅。',
+      reasons:['5 年分位 12.6%，低估成立','波动 24.7%，网格成交机会充足','距 52 周高点 -24.3%，位置安全'],
+      risks:['集采政策扰动频繁，单日跳变多','全历史分位不低，行业估值中枢已下移'],
+      hint:'格距 5% × 12 格，小仓位起步'}},
+  hs300:{name:'沪深300',code:'000300',cat:'宽基',level:'no',verdict:'不建议（估值偏高）',pct:87.9,vol:'17.3%',step:'4%',score:17.6,
+    pe:'14.64',peMed:'12.68',pb:'1.48',pbMed:'1.47',r20:'+3.2%',r60:'+8.6%',r120:'+15.4%',dist:'-2.1%',
+    bands:[['3年',94.2],['5年',87.9],['10年',75.6],['全历史',72.4]],
+    ai:{one:'估值分位 87.9% 越过否决线，此刻开网等于在山顶挂单。',
+      detail:'沪深300 的 3 年分位高达 94.2%，5 年 87.9%，PE_TTM 14.64 已高于历史中位 12.68——无论哪个周期看，现在都是"贵"的一侧。\n网格的第一原则是低估买入：在 87.9% 分位开网，意味着每一档买入都站在历史高位，一旦反转就是逐级套牢。动量（近 120 日 +15.4%）还会诱人追高，这正是纪律要防的事。\n已有持仓者建议只卖不买；想开新网请等分位回到 50% 以下。',
+      reasons:['各周期分位 72-94%，全面偏高','PE 14.64 高于历史中位 12.68','近 120 日 +15.4%，追高动量强，风险大'],
+      risks:['高位开网 → 下跌时逐级套牢、满格破网','强动量延续会让人误以为"这次不一样"'],
+      hint:'不开网；已有网格只卖不买'}},
+};
+/* 其余指数用模板生成（sec/star50/cyb/zz500） */
+const IDX_TPL={
+  sec:{name:'证券公司',code:'399975',cat:'行业',pct:31.5,vol:'32.8%',step:'6%',score:55.8,level:'wait',verdict:'观望'},
+  star50:{name:'科创50',code:'000688',cat:'宽基',pct:35.6,vol:'30.2%',step:'6%',score:47.9,level:'wait',verdict:'观望'},
+  cyb:{name:'创业板指',code:'399006',cat:'宽基',pct:41.8,vol:'28.9%',step:'6%',score:44.7,level:'wait',verdict:'观望'},
+  zz500:{name:'中证500',code:'000905',cat:'宽基',pct:54.2,vol:'21.5%',step:'5%',score:38.4,level:'wait',verdict:'观望'},
+};
+const LEVEL_C={go:'go',maybe:'maybe',wait:'wait',no:'no'};
+function tplAi(d){
+  return {one:`估值分位 ${d.pct}%，未到开网的安全区，继续等待。`,
+    detail:`该指数当前 5 年分位 ${d.pct}%，处于 30-60% 的中性区间——既不够便宜（没有安全垫），也不够极端（没有恐慌盘）。\n年化波动 ${d.vol} 对网格很有吸引力，这也是它容易诱人"先开了再说"的地方。但波动决定格距、估值决定生死：分位未回到 30% 以下前，雷达建议观望。\n把它留在监控池，分位跌破 30% 时会自动进入「可开网」视野。`,
+    reasons:[`分位 ${d.pct}% 处于中性区，安全垫不足`,`波动 ${d.vol} 充足，是未来的好网格标的`],
+    risks:['中性区开网 = 胜率交给运气，而非纪律','等待期间标的可能直接涨走（机会成本）'],
+    hint:'暂不开网，分位 <30% 再评估'};
+}
+let curIdx=null;
+function openDrawer(key){
+  const d=IDX[key]||IDX_TPL[key];if(!d)return;curIdx=d;
+  d.ai=d.ai||tplAi(d);
+  d.bands=d.bands||[['3年',d.pct-2.4],['5年',d.pct],['10年',d.pct+4.1],['全历史',d.pct+9.6]];
+  d.pe=d.pe||'—';d.peMed=d.peMed||'—';d.pb=d.pb||'—';d.pbMed=d.pbMed||'—';
+  d.r20=d.r20||'—';d.r60=d.r60||'—';d.r120=d.r120||'—';d.dist=d.dist||'—';
+  $('#dr-name').textContent=d.name;$('#dr-code').textContent=d.code;
+  $('#dr-chips').innerHTML=`<span class="chip blue">${d.cat}</span><span class="chip ${LEVEL_C[d.level]}">${d.verdict}</span><span class="chip wait">评分 ${d.score}</span>`;
+  const bandColor=v=>v<20?'var(--green)':v<40?'#84BB45':v<60?'var(--amber)':v<80?'#E4823C':'var(--red)';
+  $('#dr-bands').innerHTML=d.bands.map(([l,v])=>`<div class="vband"><span class="vl">${l}</span><span class="vt"><i style="width:${Math.max(2,Math.min(100,v))}%;background:${bandColor(v)};"></i></span><span class="vv" style="color:${bandColor(v)};">${v.toFixed(1)}%</span></div>`).join('');
+  $('#dr-kv').innerHTML=[
+    ['PE_TTM',`${d.pe} <small>中位 ${d.peMed}</small>`],['PB',`${d.pb} <small>中位 ${d.pbMed}</small>`],
+    ['年化波动',d.vol],['距52周高点',d.dist],
+    ['20日动量',d.r20],['60日动量',d.r60],['120日动量',d.r120],['建议格距',d.step],
+  ].map(([k,v])=>`<div class="it"><div class="k">${k}</div><div class="vv">${v}</div></div>`).join('');
+  $('#dr-ai').classList.remove('show');
+  $('#backdrop').classList.add('show');$('#drawer').classList.add('open');
+}
+function closeDrawer(){$('#backdrop').classList.remove('show');$('#drawer').classList.remove('open');}
+function toggleDrAi(){
+  const d=curIdx;if(!d)return;
+  const el=$('#dr-ai');
+  el.innerHTML=`<div class="ai-t">✦ AI 研判 · ${d.name}<span class="chip go" style="margin-left:auto;">${d.verdict}</span></div>
+    <div class="ai-sec"><div class="ai-k">结论</div><div class="ai-p">${d.ai.one}</div></div>
+    <div class="ai-sec"><div class="ai-k">深入解读</div><div class="ai-p">${d.ai.detail.replace(/\n/g,'<br><br>')}</div></div>
+    <div class="ai-sec"><div class="ai-k">关键依据</div><div class="ai-p mute">${d.ai.reasons.map(r=>'· '+r).join('<br>')}</div></div>
+    <div class="ai-sec"><div class="ai-k">风险提示</div><div class="ai-p mute">${d.ai.risks.map(r=>'· '+r).join('<br>')}</div></div>
+    <div class="ai-sec"><div class="ai-k">参数倾向</div><div class="ai-p">${d.ai.hint}</div></div>
+    <div class="ai-disc">// AI 定位是研究助手：解读数据、提示风险，不构成投资建议。按（标的, 数据日期）缓存。</div>`;
+  el.classList.toggle('show');
+}
+
+/* ================= 计划详情 ================= */
+const PLANS={
+  p300:{name:'300网格',sym:'沪深300ETF',code:'510300',ver:'v2.0 · 留利润 30%',status:'ACTIVE',stChip:'go',
+    base:4.200,step:'5%',grids:10,cap:'¥88,000',cur:4.653,low:2.515,
+    cells:['sold','sold','keep','sold','hold','hold','wait','wait','wait','wait'],
+    trades:[['07-18','SELL','G3','3.790 × 2,600','+¥518'],['07-02','BUY','G1','4.200 × 2,300','¥9,660'],['06-20','SELL','G2 · 留存','3.990 × 2,200','+¥437'],['06-11','BUY','G2','3.990 × 2,400','¥9,576']],
+    note:'网格 2.0：每次卖出留存 30% 利润份额，已累计免费底仓 800 股。'},
+  p510880:{name:'红利网格',sym:'红利ETF',code:'510880',ver:'v1.0',status:'PAUSED',stChip:'maybe',
+    base:2.980,step:'5%',grids:10,cap:'¥64,000',cur:3.072,low:1.784,
+    cells:['sold','sold','sold','wait','wait','wait','wait','wait','wait','wait'],
+    trades:[['07-15','BUY','G1','2.831 × 3,500','¥9,909'],['07-09','SELL','G2 · 留存','2.980 × 2,400','+¥698']],
+    note:'高位运行中：现价高于基准价 3.1%，已暂停挂新买单，可上移重开。'},
+  p512880:{name:'证券网格',sym:'证券ETF',code:'512880',ver:'v1.0',status:'BROKEN',stChip:'no',
+    base:1.150,step:'6%',grids:10,cap:'¥72,000',cur:0.842,low:0.868,
+    cells:['hold','hold','hold','hold','hold','hold','hold','hold','hold','hold'],
+    trades:[['07-02','BUY','G10 · 破网前','0.868 × 11,500','¥9,982'],['06-25','BUY','G9','0.924 × 10,800','¥9,979']],
+    note:'破网：现价低于最低档 3.0%，10 格全部买满，等待人工处置。'},
+  p512010:{name:'医药网格',sym:'医药ETF',code:'512010',ver:'v1.0',status:'CLOSED',stChip:'wait',
+    base:0.560,step:'5%',grids:8,cap:'¥45,000',cur:0.418,low:0.354,
+    cells:['sold','sold','sold','sold','sold','sold','sold','sold'],
+    trades:[['05-28','SELL','G8 · 清仓','0.402 × 24,000','+¥312'],['05-19','SELL','G6','0.446 × 22,000','+¥486']],
+    note:'已归档：全程 8 回合、已实现 ¥2,140，因行业估值中枢下移主动关闭。'},
+};
+const CELL_T={wait:['待买','st-wait'],hold:['持有','st-hold'],sold:['已卖','st-sold'],keep:['留存','st-keep']};
+function showPlan(id,ai){
+  const p=PLANS[id];if(!p)return;
+  const pct=Math.max(3,Math.min(97,(p.cur-p.low)/((p.base-p.low)||1)*100));
+  const isBroken=p.status==='BROKEN', isClosed=p.status==='CLOSED';
+  $('#plan-detail').innerHTML=`
+  <div style="padding:16px 14px 22px;">
+    <div class="ck-card">
+      <div class="ck-head">
+        <div class="t"><span class="bar">▌</span>计划详情 · ${p.name} <span class="chip ${p.stChip}" style="margin-left:6px;">${p.status}</span></div>
+        <div class="d">${p.sym} ${p.code} · ${p.ver} · 基准 ${p.base.toFixed(3)} · ${p.step} × ${p.grids} 格 · 满格 ${p.cap}</div>
+      </div>
+      <div style="padding:14px;">
+        <div class="band-head" style="margin-bottom:10px;"><div class="t" style="font-size:11.5px;"><span class="bar">▌</span>档位执行状态棋盘</div><div class="d">现价 <b>${p.cur.toFixed(3)}</b></div></div>
+        <div class="board">${p.cells.map((c,i)=>`<div class="cell ${CELL_T[c][1]}"><span class="gno">G${i+1}</span><span class="gst">${CELL_T[c][0]}</span></div>`).join('')}</div>
+        <div class="board-legend">
+          <span><i style="border-style:dashed;border-color:var(--line3);background:var(--bg2);"></i>待买</span>
+          <span><i style="border-color:var(--green);background:rgba(69,199,106,.16);"></i>持有</span>
+          <span><i style="border-color:var(--grey);background:rgba(118,127,141,.13);"></i>已卖</span>
+          <span><i style="border-color:var(--amber);background:rgba(226,169,60,.15);"></i>留存（零成本）</span>
+        </div>
+        <div class="ruler">
+          <div class="track"></div>
+          <div class="tick" style="left:0%;"></div><div class="ticklab" style="left:0%;transform:none;">最低档 ${p.low.toFixed(3)}</div>
+          <div class="tick" style="left:100%;"></div><div class="ticklab" style="left:100%;transform:translateX(-100%);">基准 ${p.base.toFixed(3)}</div>
+          <div class="cur" style="left:${pct}%;"><span class="curlab">现价 ${p.cur.toFixed(3)}</span><div class="pin"></div></div>
+        </div>
+        <div class="foot-note">// ${p.note}</div>
+        ${isBroken?`
+        <div style="margin-top:14px;">
+          <div class="band-head" style="margin-bottom:10px;"><div class="t" style="font-size:11.5px;"><span class="bar">▌</span>破网处置 BREAK ACTION · 三选一</div><div class="d">选择后计划状态与提醒随之更新</div></div>
+          <div class="brk-opts show" style="margin-top:0;">
+            <div class="brk-opt" onclick="selBrk(this)"><div class="ot"><span class="rad"></span>装死持有 HOLD</div><div class="cons">持仓不再买卖，等价格回到网内（≥0.868）自动恢复网格。代价：<b>期间无网格收益</b>；好处：不确认亏损、不追加投入。</div></div>
+            <div class="brk-opt" onclick="selBrk(this)"><div class="ot"><span class="rad"></span>向下接网 EXTEND</div><div class="cons">以现价 0.842 为新基准向下补挂新格。需 <b>追加资金约 ¥36,000</b>，摊低成本、延续套利；代价：单一品种敞口加大。</div></div>
+            <div class="brk-opt" onclick="selBrk(this,true)"><div class="ot"><span class="rad"></span>止损归档 STOP</div><div class="cons">按现价卖出全部网格持仓，<b>确认亏损约 ¥-6,420</b>，计划转 CLOSED 归档。好处：释放占用资金，结束纪律消耗。</div></div>
+          </div>
+        </div>`:''}
+        <div class="oprow" style="margin-top:16px;">
+          <button class="btn" style="color:var(--green);border-color:rgba(69,199,106,.4);" onclick="togglePlanAi('${id}')">✦ AI 计划体检</button>
+          ${p.status==='ACTIVE'||p.status==='PAUSED'?`<button class="btn" onclick="rebaseToast()">↑ 上移重开</button>`:''}
+          ${p.status==='ACTIVE'?`<button class="btn" onclick="toast('已暂停挂新单（演示）')">暂停</button>`:''}
+          ${p.status==='PAUSED'?`<button class="btn primary" onclick="toast('已恢复 ACTIVE（演示）')">恢复</button>`:''}
+          ${isClosed?`<button class="btn" onclick="toast('归档计划只读，可在复盘页查看完整统计（演示）')">已归档 · 只读</button>`:''}
+        </div>
+        <div class="ai-block" id="plan-ai" style="margin-top:14px;">
+          <div class="ai-t">✦ AI 计划体检 · ${p.name}<span class="chip ${p.stChip}" style="margin-left:auto;">${isBroken?'谨慎':'适合'}</span></div>
+          <div class="ai-sec"><div class="ai-k">结论</div><div class="ai-p">${isBroken?'最脆弱点已成现实：满格后跌破最低档，处置优先级高于一切参数优化。':'计划结构健康，参数与「低估+波动+不死」理念匹配，继续机械执行即可。'}</div></div>
+          <div class="ai-sec"><div class="ai-k">深入解读</div><div class="ai-p">${isBroken
+            ?'证券网格的破口出在「格数不足以覆盖行业极值」：6% × 10 格只覆盖 -46% 跌幅，而证券指数历史最大回撤超过 -60%。\n当前满格成本约 ¥72,000，占本金 24%，尚在可承受范围——这也是当初压力测试的价值。\n三条路径的取舍本质是「时间 vs 金钱」：装死持有用时间换空间，向下接网用金钱换成本，止损用确定性换自由。'
+            :'满格资金 ¥88,000 占本金 29%，单计划敞口健康；最深档 -40% 覆盖了沪深300 历史常规回撤区间。\n留利润 30% 已积累 800 股零成本底仓，当前浮盈全为「市场白送」——这是 2.0 相对 1.0 的核心优势：上涨市里不再踏空。\n需要留意的是估值分位 87.9% 已越线，买入侧应保持暂停，让网格只做卖出动作。'}</div></div>
+          <div class="ai-sec"><div class="ai-k">风险提示</div><div class="ai-p mute">${isBroken?'· 接网追加资金会进一步扩大单一行业敞口\n· 装死期间若行业基本面恶化，回本周期可能以年计':'· 估值高位区继续买入会摊高整体成本\n· 留存底仓在深度熊市中同样回撤'}</div></div>
+          <div class="ai-disc">// 计划体检基于参数与压力测试数据，不构成投资建议。按（计划, 数据日期）缓存。</div>
+        </div>
+      </div>
+      <div class="ck-head" style="border-top:1px solid var(--line2);"><div class="t"><span class="bar">▌</span>成交记录 FILLS · ${p.trades.length}</div><div class="d">自动匹配档位</div></div>
+      <table>
+        <thead><tr><th class="l">日期</th><th class="l">方向</th><th class="l">档位</th><th>价格 × 份额</th><th>金额/收益</th></tr></thead>
+        <tbody>${p.trades.map(t=>`<tr><td class="l">${t[0]}</td><td class="l"><span class="badge ${t[1]==='BUY'?'buy':'sell'}">${t[1]}</span></td><td class="l sans" style="color:var(--muted);">${t[2]}</td><td>${t[3]}</td><td class="${String(t[4]).includes('+')?'g':''}">${t[4]}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>
+  </div>`;
+  if(ai)setTimeout(()=>togglePlanAi(id),150);
+  $('#plan-detail').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function togglePlanAi(id){const el=$('#plan-ai');if(el)el.classList.toggle('show');}
+function toggleWeekly(){$('#weekly').classList.toggle('show');}
+
+/* ================= 规划器：档位表 ================= */
+function renderLadder(){
+  const base=parseFloat($('#f-base').value)||4.2, step=(parseFloat($('#f-step').value)||5)/100,
+        n=parseInt($('#f-grids').value)||10, amt=parseFloat($('#f-amt').value)||10000,
+        add=(parseFloat($('#f-add').value)||0)/100, keep=(parseFloat($('#f-keep').value)||0)/100;
+  const fmt=(v,d)=>v.toLocaleString('zh-CN',{minimumFractionDigits:d,maximumFractionDigits:d});
+  $('#ladder-body').innerHTML=Array.from({length:n},(_,i)=>{
+    const buy=+(base*Math.pow(1-step,i)).toFixed(4), sell=+(buy/(1-step)).toFixed(4);
+    const money=amt*Math.pow(1+add,i), shares=Math.floor(money/buy/100)*100;
+    const kept=keep>0?Math.max(100,Math.floor(shares*keep/100)*100):0, sellSh=shares-kept;
+    const profit=+(sellSh*(sell-buy)).toFixed(0);
+    return `<tr><td class="l f">G${i+1}</td><td>${(-(1-buy/base)*100).toFixed(1)}%</td><td>${buy.toFixed(3)}</td><td>${sell.toFixed(3)}</td><td>¥${fmt(shares*buy,0)}</td><td>${fmt(shares,0)}</td><td>${fmt(sellSh,0)}</td><td class="a">${kept?fmt(kept,0):'—'}</td><td class="g">+¥${fmt(profit,0)}</td></tr>`;
+  }).join('');
+}
+
+/* ================= 资金流水弹层 ================= */
+function openModal(){$('#modal').classList.add('show');}
+function closeModal(){$('#modal').classList.remove('show');}
+
+/* ================= 首启向导 ================= */
+let obBf=false;
+function openOnboard(){$('#onboard').classList.add('show');obGo(1);}
+function closeOnboard(skip){$('#onboard').classList.remove('show');if(skip)toast('已跳过向导 · 可随时在右上角 ⚙ 重新进入');}
+function obGo(n){
+  [1,2,3].forEach(i=>{
+    $('#ob-s'+i).style.display=i===n?'block':'none';
+    const d=$('#ob-d'+i);d.className='ob-dot'+(i<n?' done':i===n?' cur':'');
+  });
+}
+$('#ob-agree').onchange=e=>{$('#ob-next1').disabled=!e.target.checked;};
+function obTest(){
+  const t=$('#ob-token').value.trim(),st=$('#ob-teststat');
+  if(!t){st.textContent='请先填入 Token';st.className='ob-teststat';return;}
+  st.textContent='连接中…';st.className='ob-teststat';
+  setTimeout(()=>{st.textContent='✓ 连接正常 · 数据通道可用';st.className='ob-teststat ok';$('#ob-next2').disabled=false;},700);
+}
+function obBackfill(){
+  if(obBf)return;obBf=true;$('#ob-bfbtn').disabled=true;$('#ob-bfbtn').textContent='回填中…';
+  const logs=['连接数据通道 ttx.dailyfetch.top … <span class="ok">OK</span>','交易日历对齐：2015-01-05 ~ 2026-07-21','回填 宽基指数 8 只 … <span class="ok">完成</span>','回填 申万行业 31 只 … <span class="ok">完成</span>','计算估值分位（3y/5y/10y/全历史）… <span class="ok">完成</span>','就绪度评分刷新 … <span class="ok">完成</span>'];
+  let i=0;const log=$('#ob-plog');log.innerHTML='';
+  const tm=setInterval(()=>{
+    log.innerHTML+=logs[i]+'<br>';$('#ob-prog').style.width=((i+1)/logs.length*100)+'%';
+    if(++i>=logs.length){clearInterval(tm);$('#ob-bfbtn').textContent='✓ 回填完成';$('#ob-next3').disabled=false;}
+  },450);
+}
+function obFinish(){closeOnboard();switchTab('picks');toast('初始化完成 · 机会页已就绪，从 <b>适合开启</b> 的指数开始');}
+
+/* ================= 齿轮菜单 ================= */
+const gearMenu=$('#gearmenu');
+$('#gearbtn').onclick=e=>{e.stopPropagation();gearMenu.classList.toggle('show');};
+document.addEventListener('click',e=>{if(!e.target.closest('.gearwrap'))gearMenu.classList.remove('show');});
+function menuGo(x){gearMenu.classList.remove('show');if(x==='states')switchTab('states');else if(x==='onboarding')openOnboard();}
+function menuAbout(){gearMenu.classList.remove('show');toast('ETFW Redesign 静态原型 · 2026-07-21 · 仅供设计评审，非生产代码');}
+
+/* hash 入口 + 初始化 */
+if(location.hash==='#onboarding')openOnboard();
+else if(location.hash){const h=location.hash.slice(1),[t,arg]=h.split('/');
+  if(document.getElementById('page-'+t))switchTab(t);
+  if(t==='plans'&&arg&&PLANS[arg])showPlan(arg);
+  if(t==='picks'&&arg)openDrawer(arg);}
+renderLadder();
+</script>
+</body>
+</html>

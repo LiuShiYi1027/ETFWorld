@@ -1,0 +1,39 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+backend/.env
+!backend/.env.example
+
+# Local databases and logs
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Python environments and caches
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Desktop and editor files
+.DS_Store
+.idea/
+.vscode/
+.claude/
+# impeccable：临时产物忽略；评审报告（critique/*.md）作为共享设计档案入库
+.impeccable/config.local.json
+.impeccable/hook.cache.json
+.impeccable/*.png
+.impeccable/live/
+
+# Build output
+build/
+dist/
+
+# 数据接口缓存文件（可由接口重新生成，不入库）
+data/*.json
+
+# Generated icon conversion workspace
+*.iconset/

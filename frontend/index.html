@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETFWorld · 网格策略</title>
+<link rel="stylesheet" href="/css/app.css">
+<script src="/vendor/echarts.min.js"></script>
+<script src="/vendor/petite-vue.js"></script>
+</head>
+<body v-cloak>
+<header><div class="hd">
+  <div class="brand"><span class="sq"></span>ETFWorld</div>
+  <nav id="nav" aria-label="主导航">
+    <button data-tab="home" :class="{active:tab==='home'}" @click="switchTab('home')">首页</button>
+    <button data-tab="today" :class="{active:tab==='today'}" @click="switchTab('today')">今天</button>
+    <button data-tab="picks" :class="{active:tab==='picks'}" @click="switchTab('picks')">机会</button>
+    <button data-tab="planner" :class="{active:tab==='planner'}" @click="switchTab('planner')">规划</button>
+    <button data-tab="plans" :class="{active:tab==='plans'}" @click="switchTab('plans')">计划</button>
+    <button data-tab="portfolio" :class="{active:tab==='portfolio'}" @click="switchTab('portfolio')">组合</button>
+    <button data-tab="review" :class="{active:tab==='review'}" @click="switchTab('review')">复盘</button>
+  </nav>
+  <div class="right">
+    <span><span class="dot-live" :class="{closed:!mktOpen}"></span>{{ mktOpen ? '交易中' : '已收盘' }} {{ clock }}</span>
+    <div class="gearwrap">
+      <button class="gearbtn" @click.stop="toggleGear()" title="设置" aria-label="设置">⚙</button>
+      <div class="gear-menu" :class="{show:gearOpen}">
+        <button @click="openSettings()">⚙ 设置（数据源 / AI）</button>
+        <button @click="openOnboard()">⇢ 首启向导</button>
+        <button onclick="location.href='/legacy'">↩ 旧版界面</button>
+        <button @click="toast('ETFWorld · 研究工具，不构成投资建议 · 数据仅存本机')">ⓘ 关于</button>
+      </div>
+    </div>
+  </div>
+</div></header>
+
+<main>
+<!-- ==================== 首页 ==================== -->
+<section class="page" :class="{on:tab==='home'}" v-show="tab==='home'">
+  <div class="hero">
+    <div class="phil">低估买入 · 波动套利 · 不死标的 · 机械执行</div>
+    <div class="sub">ETFWorld 是你的网格策略工作台：看估值位置 → 找可交易 ETF → 设计网格 → 压力测试 → 记录执行与复盘。<b>不连接券商、不自动下单</b>，数据与密钥都在你自己的电脑上。研究工具，不构成投资建议。</div>
+    <div class="cta">
+      <button class="btn primary" @click="switchTab('today')">今日待办 →</button>
+      <button class="btn" @click="switchTab('planner')">开一张新网格</button>
+      <button class="btn" @click="switchTab('portfolio')">查看组合</button>
+    </div>
+  </div>
+
+  <div class="kpis" style="margin-top:22px;">
+    <div class="kpi" v-for="k in homeKpis()" :key="k.k" @click="k.go && switchTab(k.go)" :style="k.go?'cursor:pointer;':''">
+      <div class="k">{{ k.k }}</div>
+      <div class="v" :class="{good:k.good,bad:k.bad,warm:k.warm}">{{ k.v }}</div>
+      <div class="f">{{ k.f }}</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:4px;">
+    <div class="card-h"><div class="t">市场估值地图</div><div class="d">监控指数按 5 年估值分位分布 · 点击点位查看详情</div></div>
+    <div class="card-b">
+      <div class="vmap">
+        <div class="vmap-scale">
+          <span class="vmap-dot" v-for="d in vmapDots()" :key="d.ts_code" :style="{left:d.pct+'%',background:d.color}" :title="d.name+' '+d.pct+'%'" @click="openDrawer(d.ts_code)"></span>
+        </div>
+        <div class="vmap-ticks"><span>0% · 低估区</span><span>20%</span><span>40%</span><span>60%</span><span>80%</span><span>100% · 高估区</span></div>
+      </div>
+      <div class="vzones">
+        <div class="vzone" v-for="z in vmapZones()" :key="z.title">
+          <div class="zt"><span class="chip" :class="z.cls">{{ z.title }}</span><span class="zn">{{ z.items.length }} 只</span></div>
+          <div class="vchips">
+            <span class="vchip" v-for="d in z.items" :key="d.ts_code" @click="openDrawer(d.ts_code)">
+              <i :style="{background:d.color}"></i>{{ d.name }} <b>{{ d.pct }}</b>
+            </span>
+            <span class="vchip-none" v-if="!z.items.length">—</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="note">分位 = 当前估值在过去五年中的位置，越低越便宜。绿点为低估区标的；越过 50% 否决线的只卖不买。</div>
+  </div>
+
+  <div class="card" v-if="marketSnapshot().length">
+    <div class="card-h"><div class="t">今日市场快照</div></div>
+    <div class="card-b" style="padding-top:6px;">
+      <table><tbody>
+        <tr v-for="s in marketSnapshot()" :key="s.tag">
+          <td class="l" style="color:var(--muted);width:110px;">{{ s.tag }}</td>
+          <td class="l"><span class="sym">{{ s.name }}</span></td>
+          <td class="l" :style="{color:s.cls==='g'?'var(--accent)':'var(--red-ink)'}">{{ s.val }}</td>
+          <td class="l" style="color:var(--muted);">{{ s.note }}</td>
+        </tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <div class="fcards" style="margin-top:20px;">
+    <div class="fcard" @click="switchTab('picks')"><div class="fk">机会</div><div class="ft">现在能开网格吗</div><div class="fd">低估 + 波动 + 不死三要素评分，估值带与 AI 研判，先看再买。</div><div class="fa">进入 →</div></div>
+    <div class="fcard" @click="switchTab('planner')"><div class="fk">规划</div><div class="ft">设计你的第一张网</div><div class="fd">参数 → 档位表 → 压力测试 → 回测验证，先算最坏情况再开网。</div><div class="fa">进入 →</div></div>
+    <div class="fcard" @click="switchTab('review')"><div class="fk">复盘</div><div class="ft">网格赚了多少钱</div><div class="fd">套利回合、执行纪律、收益构成，AI 周报复述（杂志模式）。</div><div class="fa">进入 →</div></div>
+  </div>
+</section>
+
+<!-- ==================== 今天 ==================== -->
+<section class="page" :class="{on:tab==='today'}" v-show="tab==='today'">
+  <div class="pagehead">
+    <h1>今天</h1>
+    <p>先看今天要做什么，再看组合与机会 · {{ clock }}</p>
+  </div>
+
+  <div class="card">
+    <div class="card-h"><div class="t">今日待办</div><div class="d">距现价 &lt;2% 的档位 · <b>{{ todoList().length }} 条</b></div></div>
+    <div class="card-b" style="padding-left:10px;padding-right:10px;" v-if="todoList().length">
+      <table>
+        <thead><tr><th class="l">方向</th><th class="l">标的</th><th>档位价</th><th>份额</th><th>金额</th><th class="l">所属计划</th><th>距触发</th><th class="l"></th></tr></thead>
+        <tbody>
+          <tr v-for="t in todoList()" :key="t.plan_id+t.direction+t.level">
+            <td class="l"><span class="dir" :class="t.direction==='buy'?'buy':'sell'"><i></i>{{ t.direction==='buy'?'买入':'卖出' }}</span></td>
+            <td class="l"><span class="sym">{{ t.symbol_name || t.symbol }}<small>{{ t.symbol }}</small></span></td>
+            <td>{{ fmt(t.price) }}</td><td>{{ t.shares.toLocaleString('zh-CN') }}</td><td>{{ fmt(t.amount,0) }}</td>
+            <td class="l" style="color:var(--muted);">{{ t.plan_name }}</td>
+            <td><span class="pill" :class="t.dist_pct<1?'hot':'warm'">{{ t.dist_pct }}%</span></td>
+            <td class="l"><button class="btn sm" @click="dismissTodo(t)">知道了</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="empty-note" v-else>今日无临近触发的档位 · 网格在安静工作</div>
+    <div class="note">网格不自动下单，待办只负责提醒，纪律由你执行。每行：方向 · 标的 · 档位价 × 份额 = 金额 · 所属计划 · 距现价。</div>
+  </div>
+
+  <div class="alerts" v-if="alertList().length">
+    <div class="alert" v-for="al in alertList()" :key="al.title+al.chip" :class="al.kind">
+      <div class="at">{{ al.title }}<span class="chip" :class="al.chipCls">{{ al.chip }}</span></div>
+      <div class="ab" v-html="al.body"></div>
+      <div class="aa"><button class="btn sm" :class="{danger:al.kind==='crit'}" @click="alertAction(al)">
+        {{ al.act==='brk'?'处置 ▸':al.act==='rebase'?'↑ 上移重开':'去机会页看看 →' }}</button></div>
+    </div>
+  </div>
+
+  <div class="kpis" v-if="briefKpis()">
+    <div class="kpi"><div class="k">本金</div><div class="v">{{ fmt(briefKpis().principal/10000,1) }}万</div><div class="f">入金 − 出金</div></div>
+    <div class="kpi"><div class="k">现金</div><div class="v">{{ fmt(briefKpis().cash/10000,1) }}万</div><div class="f">可用弹药</div></div>
+    <div class="kpi"><div class="k">满格 / 本金</div><div class="v" :class="briefKpis().safety_warn?'bad':'good'">{{ briefKpis().safety_ratio!=null?Math.round(briefKpis().safety_ratio*100)+'%':'—' }}</div><div class="f">安全线 70% 内</div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-h"><div class="t">机会精选</div><button class="btn sm" @click="switchTab('picks')">全部 →</button></div>
+      <div class="card-b" style="padding:8px 0 10px;" v-if="topPicks().length">
+        <div class="row" v-for="(p,i) in topPicks()" :key="p.ts_code" @click="switchTab('picks');openDrawer(p.ts_code)">
+          <span class="rank">{{ i+1 }}</span>
+          <div style="flex:1;min-width:0;"><div class="nm">{{ p.name }} <span class="chip go">{{ p.verdict }}</span></div>
+            <div class="sub">估值分位 {{ p.valuation_percentile ?? '—' }}% · 年化波动 {{ p.volatility ?? '—' }}% · 建议格距 {{ p.suggested_grid ? p.suggested_grid.grid_step+'%' : '—' }}</div></div>
+          <div class="sc good">{{ p.score }}</div>
+        </div>
+      </div>
+      <div class="empty-note" v-else>今日暂无「适合开启」级机会</div>
+    </div>
+    <div class="card">
+      <div class="card-h"><div class="t">最新成交</div><button class="btn sm" @click="switchTab('plans')">计划 →</button></div>
+      <div class="card-b" style="padding:8px 0 10px;" v-if="recentTrades.length">
+        <div class="row" v-for="t in recentTrades" :key="t.id">
+          <span class="dir" :class="t.direction==='buy'?'buy':'sell'"><i></i></span>
+          <div style="flex:1;min-width:0;"><div class="nm">{{ t.symbol_name || t.symbol }} <span style="color:var(--faint);font-size:11.5px;">{{ t.grid_level ? 'G'+t.grid_level : '' }}</span></div>
+            <div class="sub">{{ t.trade_date }} · {{ t.price }} × {{ t.shares.toLocaleString('zh-CN') }}</div></div>
+          <div class="amt">{{ fmt(t.amount,0) }}</div>
+        </div>
+      </div>
+      <div class="empty-note" v-else>还没有成交记录</div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 机会 ==================== -->
+<section class="page" :class="{on:tab==='picks'}" v-show="tab==='picks'">
+  <div class="pagehead">
+    <h1>机会</h1>
+    <p>雷达 + 估值合并视图：先评分排序，再点行进抽屉看估值带与 AI 研判。结论是研究信号，<b>不构成投资建议</b>。</p>
+  </div>
+  <div class="card">
+    <div class="card-h"><div class="t">监控指数评分</div><div class="d" v-if="readiness.length">更新于 <b>{{ readiness[0].trade_date }}</b> · 共 {{ readiness.length }} 只</div></div>
+    <div class="card-b" style="padding-left:10px;padding-right:10px;" v-if="radarRows().length">
+      <table>
+        <thead><tr><th class="l">#</th><th class="l">名称</th><th class="l">类别</th><th>估值分位</th><th>年化波动</th><th>建议格距</th><th>评分</th><th class="l">结论</th><th class="l"></th></tr></thead>
+        <tbody>
+          <tr class="clk" v-for="(r,i) in radarRows()" :key="r.ts_code" @click="openDrawer(r.ts_code)">
+            <td class="l" style="color:var(--faint);">{{ String(i+1).padStart(2,'0') }}</td>
+            <td class="l"><span class="sym">{{ r.name }}<small>{{ r.ts_code }}</small></span></td>
+            <td class="l" style="color:var(--muted);">{{ r.category }}</td>
+            <td :style="{fontWeight:600,color:r.valuation_percentile<30?'var(--accent)':r.valuation_percentile>50?'var(--red-ink)':'inherit'}">{{ r.valuation_percentile != null ? r.valuation_percentile + '%' : '—' }}</td>
+            <td>{{ r.volatility != null ? r.volatility + '%' : '—' }}</td>
+            <td>{{ r.suggested_grid ? r.suggested_grid.grid_step + '%' : '—' }}</td>
+            <td style="font-weight:700;" :style="{color:r.level==='go'?'var(--accent)':r.level==='no'?'var(--red-ink)':r.level==='maybe'?'var(--amber-ink)':'var(--muted)'}">{{ r.score }}</td>
+            <td class="l"><span class="chip" :class="chipCls(r.level)">{{ r.verdict }}</span></td>
+            <td class="l" style="color:var(--faint);">→</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="empty-note" v-else-if="readinessErr">数据加载失败 · {{ readinessErr }} <button class="btn sm" @click="loadReadiness(true)">重试</button></div>
+    <div class="empty-note" v-else>还没有估值数据 · 请先在 ⚙ 设置中配置 Tushare Token 并回填</div>
+    <div class="note">评分口径：估值安全垫 70 分 + 波动充足度 30 分；分位 &gt;50% 直接否决。点击任意行展开右侧「指数详情」抽屉。</div>
+  </div>
+</section>
+<!-- ==================== 规划 ==================== -->
+<section class="page" :class="{on:tab==='planner'}" v-show="tab==='planner'" v-effect="if(tab==='planner')applySeed()">
+  <div class="pagehead">
+    <h1>规划</h1>
+    <p>定参数 → 看档位表与压力测试 → 回测验证 → 存为计划。买入价 = 基准价 × (1−格距)ⁱ，卖出价 = 买入价 ÷ (1−格距)。</p>
+  </div>
+  <div class="grid2" style="grid-template-columns:1fr 1.2fr;align-items:start;">
+    <div>
+      <div class="card">
+        <div class="card-h"><div class="t">找标的</div><div class="d">当前：<b>{{ plannerSymbolLabel() }}</b></div></div>
+        <div class="card-b">
+          <div class="field">
+            <label>搜索 ETF（名称 / 代码）</label>
+            <input v-model="etfQuery" @input="searchEtf()" placeholder="如 沪深300 / 510300">
+          </div>
+          <div v-if="etfResults.length" style="margin-top:8px;border:1px solid var(--line);border-radius:8px;overflow:hidden;">
+            <div class="row" v-for="e in etfResults" :key="e.ts_code || e.symbol" @click="pickEtf(e)" style="padding:9px 12px;">
+              <div style="flex:1;min-width:0;"><div class="nm" style="font-size:13px;">{{ e.name }}</div>
+                <div class="sub">{{ e.ts_code || e.symbol }}<span v-if="e.amount"> · 成交额 {{ (e.amount/1e8).toFixed(1) }}亿</span></div></div>
+              <span style="color:var(--faint);">→</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><div class="t">参数</div></div>
+        <div class="card-b">
+          <div class="formgrid">
+            <div class="field"><label>计划名称</label><input v-model="plannerForm.name" placeholder="自动按标的命名"></div>
+            <div class="field"><label>基准价（第 1 格买入价）</label><input v-model="plannerForm.base_price" type="number" step="0.001"></div>
+            <div class="field"><label>格距 %</label><input v-model="plannerForm.grid_step" type="number" step="0.5" min="1" max="20"></div>
+            <div class="field"><label>格数</label><input v-model="plannerForm.grid_count" type="number" min="2" max="30"></div>
+            <div class="field"><label>每格金额（元）</label><input v-model="plannerForm.amount_per_grid" type="number" step="1000"></div>
+            <div class="field"><label>逐格加码 %</label><input v-model="plannerForm.step_increase" type="number" min="0" max="50"></div>
+            <div class="field"><label>留利润 %（网格 2.0）</label><input v-model="plannerForm.profit_retention" type="number" min="0" max="90"></div>
+          </div>
+          <div class="btnrow">
+            <button class="btn primary" @click="preview()" :disabled="plannerLoading">重算档位</button>
+            <button class="btn" @click="runOptimize()" :disabled="optLoading">参数寻优</button>
+            <button class="btn" @click="savePlan()">存为计划</button>
+          </div>
+        </div>
+      </div>
+      <div class="card" v-if="plannerPreview">
+        <div class="card-h"><div class="t">压力测试</div><div class="d">假设全部档位买满</div></div>
+        <div class="card-b">
+          <div class="kpis flat" style="grid-template-columns:repeat(2,1fr);margin-bottom:0;">
+            <div class="kpi"><div class="k">满格资金</div><div class="v sm warm">{{ fmt(plannerPreview.pressure_test.total_capital,0) }}</div><div class="f">最深 -{{ plannerPreview.pressure_test.max_fall_pct }}%</div></div>
+            <div class="kpi"><div class="k">满格浮亏</div><div class="v sm bad">{{ fmt(plannerPreview.pressure_test.max_unrealized_loss,0) }}</div><div class="f">{{ plannerPreview.pressure_test.max_unrealized_loss_pct }}% · 最低 {{ plannerPreview.pressure_test.lowest_price }}</div></div>
+          </div>
+        </div>
+        <div class="note">先算最坏情况再开网：满格资金是你最多要掏的钱，满格浮亏是那一刻的账面。</div>
+      </div>
+      <div class="card" v-if="plannerOpt && plannerOpt.best">
+        <div class="card-h"><div class="t">参数寻优</div><div class="d">近一年真实行情 · 风险调整收益</div></div>
+        <div class="card-b">
+          最优组合：<b>格距 {{ plannerOpt.best.step }}% × {{ plannerOpt.best.count }} 格</b>
+          （网格 {{ plannerOpt.best.ret }}% · 回撤 {{ plannerOpt.best.dd }}% · 套利 {{ plannerOpt.best.trades }} 次 · 评分 {{ plannerOpt.best.score }}）
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="card" v-if="plannerPreview">
+        <div class="card-h"><div class="t">档位表 · {{ plannerPreview.levels.length }} 格</div><div class="d">基准 <b>{{ plannerForm.base_price }}</b> · 格距 <b>{{ plannerForm.grid_step }}%</b></div></div>
+        <div class="card-b" style="padding-left:10px;padding-right:10px;">
+          <table>
+            <thead><tr><th class="l">格</th><th>跌幅</th><th>买入价</th><th>卖出价</th><th>金额</th><th>份额</th><th>卖出份额</th><th>留存</th><th>预期收益</th></tr></thead>
+            <tbody>
+              <tr v-for="l in plannerPreview.levels" :key="l.level">
+                <td class="l" style="color:var(--faint);">G{{ l.level }}</td>
+                <td>-{{ l.fall_pct }}%</td><td>{{ l.buy_price }}</td><td>{{ l.sell_price }}</td>
+                <td>{{ fmt(l.amount,0) }}</td><td>{{ l.shares.toLocaleString('zh-CN') }}</td>
+                <td>{{ l.sell_shares.toLocaleString('zh-CN') }}</td>
+                <td style="color:var(--amber-ink);">{{ l.retained_shares || '—' }}</td>
+                <td style="color:var(--accent);font-weight:600;">+{{ fmt(l.expected_profit,0) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note">金额按 100 股整手取整；留存 = 留利润不卖、转为长期底仓的份额（网格 2.0）。</div>
+      </div>
+      <div class="card" v-if="plannerBt && !plannerBt.error">
+        <div class="card-h"><div class="t">回测</div><div class="d">近一年真实行情 · {{ plannerBt.n }} 个交易日</div></div>
+        <div class="card-b">
+          <div id="bt-equity" style="height:260px;"></div>
+          <div style="display:flex;gap:22px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:10px;">
+            <span>网格 <b :style="{color:plannerBt.grid_ret>=0?'var(--accent)':'var(--red-ink)',fontSize:'15px'}">{{ plannerBt.grid_ret }}%</b></span>
+            <span>持有 <b :style="{color:plannerBt.hold_ret>=0?'var(--accent)':'var(--red-ink)',fontSize:'15px'}">{{ plannerBt.hold_ret }}%</b></span>
+            <span>套利 <b style="color:var(--text);font-size:15px;">{{ plannerBt.trades }} 次</b></span>
+            <span>资金利用率 <b style="color:var(--text);font-size:15px;">{{ plannerBt.invested_pct }}%</b></span>
+            <span v-if="plannerBt.retained_shares>0">留存底仓 <b style="color:var(--amber-ink);font-size:15px;">{{ plannerBt.retained_shares }} 股</b></span>
+          </div>
+          <div class="alert warnl" style="margin-top:14px;" v-if="plannerBt.trades<=2">
+            <div class="ab">这段行情网格几乎不成交——<b>涨上去就买不到了</b>。单边上涨里网格跑不赢持有是结构性的，不是参数错了。建议配合<b>底仓 + 留利润</b>。</div>
+          </div>
+          <div class="alert crit" style="margin-top:14px;" v-if="plannerBt.broken_idx!==null&&plannerBt.broken_idx!==undefined">
+            <div class="ab">第 <b>{{ plannerBt.broken_idx+1 }}</b> 个交易日曾<b>跌破最后一格（破网）</b>，此后无格可买、满仓持有待涨。想覆盖更深跌幅可增加格数或加大每格金额。</div>
+          </div>
+        </div>
+        <div class="note">基于真实历史价格的模拟，未计手续费与滑点；仅用于理解策略特性，不代表未来收益。</div>
+      </div>
+      <div class="card" v-if="btLoading"><div class="card-b"><div class="ai-loading">正在拉取历史行情回测…</div></div></div>
+      <div class="card" v-if="!plannerPreview && !plannerLoading"><div class="empty-note">选择标的并填好参数后，点「重算档位」生成档位表与回测</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 计划 ==================== -->
+<section class="page" :class="{on:tab==='plans'}" v-show="tab==='plans'">
+  <div class="pagehead">
+    <h1>计划</h1>
+    <p>计划 = 参数 + 执行状态 + 成交记录的归档单元。破网计划需人工处置，不会自动恢复。</p>
+    <div class="spacer"></div>
+    <button class="btn primary" @click="switchTab('planner')">+ 新建计划</button>
+  </div>
+  <div class="card">
+    <div class="card-h"><div class="t">计划列表</div><div class="d">共 {{ plans.length }} 个</div></div>
+    <div class="card-b" style="padding-left:10px;padding-right:10px;" v-if="plans.length">
+      <table>
+        <thead><tr><th class="l">名称</th><th class="l">标的</th><th>版本</th><th>基准价</th><th>格距</th><th>格数</th><th>满格资金</th><th class="l">状态</th><th class="l">操作</th></tr></thead>
+        <tbody>
+          <tr class="clk" v-for="p in plans" :key="p.id" @click="open(p.id)">
+            <td class="l"><span class="sym">{{ p.name }}</span></td>
+            <td class="l">{{ p.symbol_name || '' }} <span style="color:var(--faint);font-size:11px;">{{ p.symbol }}</span></td>
+            <td>{{ p.version }}</td><td>{{ p.base_price }}</td><td>{{ p.grid_step }}%</td><td>{{ p.grid_count }}</td>
+            <td>{{ fmt(planCapital(p),0) }}</td>
+            <td class="l"><span class="chip" :class="statusChip[p.status]||'wait'">{{ p.status.toUpperCase() }}</span></td>
+            <td class="l" @click="$event.stopPropagation();">
+              <button class="btn sm" @click="open(p.id)">查看</button>
+              <button class="btn sm" style="color:var(--accent);border-color:#86EFAC;" @click="open(p.id,true)">AI</button>
+              <button class="btn sm danger" @click="delPlan(p,$event.currentTarget)">删除</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="empty-note" v-else>还没有网格计划 · 去「规划」创建第一张网格</div>
+  </div>
+
+  <!-- 计划详情 -->
+  <div id="plan-detail" v-if="detail">
+    <div class="card">
+      <div class="card-h">
+        <div class="t">计划详情 · {{ detail.name }} <span class="chip" :class="statusChip[detail.status]||'wait'" style="margin-left:6px;">{{ detail.status.toUpperCase() }}</span></div>
+        <div class="d">{{ detail.symbol_name || detail.symbol }} · {{ detail.version }} · 基准 {{ detail.base_price }} · {{ detail.grid_step }}% × {{ detail.grid_count }} 格 · 满格 {{ fmt(planCapital(detail),0) }}</div>
+      </div>
+      <div class="card-b">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+          <div style="font-size:12px;font-weight:700;color:var(--muted);">档位执行状态棋盘</div>
+          <div style="font-size:12px;color:var(--faint);" v-if="rulerInfo() && rulerInfo().cur != null">现价 <b style="color:var(--text);">{{ rulerInfo().cur }}</b></div>
+        </div>
+        <div class="board">
+          <div class="cell" v-for="c in boardCells()" :key="c.no" :class="'st-'+c.state" :title="'买入价 '+c.buy">
+            <span class="gno">G{{ c.no }}</span><span class="gst">{{ c.label }}</span>
+          </div>
+        </div>
+        <div class="board-legend">
+          <span><i style="border-style:dashed;border-color:#D6D3CB;background:#FCFCFB;"></i>待买</span>
+          <span><i style="border-color:#86EFAC;background:var(--accent-soft);"></i>持有</span>
+          <span><i style="border-color:#D6D3CB;background:var(--grey-soft);"></i>已卖</span>
+          <span><i style="border-color:#FCD34D;background:var(--amber-soft);"></i>留存（零成本）</span>
+        </div>
+        <div class="ruler" v-if="rulerInfo()">
+          <div class="track"></div>
+          <div class="ticklab" style="left:0%;transform:none;">最低档 {{ rulerInfo().low }}</div>
+          <div class="ticklab" style="left:100%;transform:translateX(-100%);">基准 {{ rulerInfo().top }}</div>
+          <div class="cur" v-if="rulerInfo().pct!=null" :style="{left:rulerInfo().pct+'%'}"><span class="curlab">现价 {{ rulerInfo().cur }}</span><div class="pin"></div></div>
+        </div>
+
+        <div style="margin-top:16px;" v-if="detail.status==='broken'">
+          <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px;">破网处置 · 三选一</div>
+          <div class="brk-opts show" style="margin-top:6px;">
+            <div class="brk-opt" :class="{sel:brkAction==='hold'}" @click="selBrk('hold')"><div class="ot"><span class="rad"></span>装死持有</div><div class="cons">持仓不再买卖，等价格回到网内自动恢复网格。代价：<b>期间无网格收益</b>；好处：不确认亏损、不追加投入。</div></div>
+            <div class="brk-opt" :class="{sel:brkAction==='extend'}" @click="selBrk('extend')"><div class="ot"><span class="rad"></span>向下接网</div><div class="cons">以现价为新基准向下补挂新格。摊低成本、延续套利；代价：<b>追加资金</b>、单一品种敞口加大。</div></div>
+            <div class="brk-opt" :class="{sel:brkAction==='stop',dangersel:brkAction==='stop'}" @click="selBrk('stop')"><div class="ot"><span class="rad"></span>止损归档</div><div class="cons">按现价卖出全部网格持仓，<b>亏损落地</b>，计划转入已归档。好处：释放占用资金，结束纪律消耗。</div></div>
+          </div>
+          <div class="btnrow"><button class="btn danger" @click="runBrkAction(detail)">确认处置</button></div>
+        </div>
+
+        <div class="btnrow">
+          <button class="btn" style="color:var(--accent);border-color:#86EFAC;" @click="runPlanAi()">✦ AI 计划体检</button>
+          <button class="btn" @click="openTradeModal(detail)">记一笔成交</button>
+          <button class="btn" v-if="detail.status==='active'" @click="setStatus(detail,'paused')">暂停</button>
+          <button class="btn primary" v-if="detail.status==='paused'" @click="setStatus(detail,'active')">恢复</button>
+          <button class="btn" @click="closeDetail()">收起</button>
+        </div>
+        <div class="ai-loading" v-if="planAiLoading">AI 正在体检…</div>
+        <div class="ai-block" :class="{show:!!planAi}" v-if="planAi">
+          <div class="ai-t">✦ AI 计划体检 · {{ detail.name }}<span class="chip" :class="planAi.verdict==='适合'?'go':planAi.verdict==='不适合'?'no':'maybe'" style="margin-left:auto;">{{ planAi.verdict }}</span></div>
+          <div class="ai-sec"><div class="ai-k">结论</div><div class="ai-p">{{ planAi.oneLine }}</div></div>
+          <div class="ai-sec" v-if="planAi.detail"><div class="ai-k">深入解读</div><div class="ai-p">{{ planAi.detail }}</div></div>
+          <div class="ai-sec" v-if="planAi.reasons && planAi.reasons.length"><div class="ai-k">关键依据</div><div class="ai-p mute" v-for="r in planAi.reasons" :key="r">· {{ r }}</div></div>
+          <div class="ai-sec" v-if="planAi.risks && planAi.risks.length"><div class="ai-k">风险提示</div><div class="ai-p mute" v-for="r in planAi.risks" :key="r">· {{ r }}</div></div>
+          <div class="ai-sec" v-if="planAi.paramHint"><div class="ai-k">参数倾向</div><div class="ai-p">{{ planAi.paramHint }}</div></div>
+          <div class="ai-disc">计划体检基于参数与压力测试数据，不构成投资建议。按（计划, 数据日期）缓存。</div>
+        </div>
+      </div>
+      <div class="card-h" style="border-top:1px solid var(--line);padding-top:14px;"><div class="t">成交记录</div><div class="d">{{ detailTrades.length }} 笔 · 自动匹配档位</div></div>
+      <div class="card-b" style="padding-left:10px;padding-right:10px;" v-if="detailTrades.length">
+        <table>
+          <thead><tr><th class="l">日期</th><th class="l">方向</th><th class="l">档位</th><th>价格</th><th>份额</th><th>金额</th><th class="l"></th></tr></thead>
+          <tbody>
+            <tr v-for="t in detailTrades" :key="t.id">
+              <td class="l">{{ t.trade_date }}</td>
+              <td class="l"><span class="dir" :class="t.direction==='buy'?'buy':'sell'"><i></i>{{ t.direction==='buy'?'买入':'卖出' }}</span></td>
+              <td class="l" style="color:var(--muted);">{{ t.grid_level ? 'G'+t.grid_level : '—' }}</td>
+              <td>{{ t.price }}</td><td>{{ t.shares.toLocaleString('zh-CN') }}</td><td>{{ fmt(t.amount,0) }}</td>
+              <td class="l"><button class="btn sm danger" @click="delTrade(t,$event.currentTarget)">删</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="empty-note" v-else>该计划还没有成交记录 · 点「记一笔成交」开始执行</div>
+    </div>
+  </div>
+</section>
+<!-- ==================== 组合 ==================== -->
+<section class="page" :class="{on:tab==='portfolio'}" v-show="tab==='portfolio'">
+  <div class="pagehead">
+    <h1>组合</h1>
+    <p>三账户视图：底仓吃趋势、网格吃震荡、现金是弹药。回答一个问题 —— <b>若全部网格买满，我的钱够不够？</b></p>
+    <div class="spacer"></div>
+    <button class="btn primary" @click="openFundFlow()">+ 记一笔资金流水</button>
+  </div>
+
+  <div class="kpis" style="grid-template-columns:repeat(5,1fr);" v-if="pf()">
+    <div class="kpi" v-for="k in pfKpis()" :key="k.k">
+      <div class="k">{{ k.k }}</div><div class="v sm" :class="{good:k.good}">{{ k.v }}</div><div class="f">{{ k.f }}</div>
+    </div>
+  </div>
+  <div class="empty-note" v-if="pf() && !pf().principal">还没有资金流水 · 「记一笔资金流水」建立本金口径后，安全线才会工作</div>
+
+  <div class="card" v-if="acctSegments().length">
+    <div class="card-h"><div class="t">三账户占比</div><div class="d">按市值</div></div>
+    <div class="card-b">
+      <div class="acct-bar"><i v-for="s in acctSegments()" :key="s.name" :style="{width:s.pct+'%',background:s.color}" :title="s.name"></i></div>
+      <div class="acct-legend">
+        <div class="acct-leg" v-for="s in acctSegments()" :key="s.name"><span class="sw" :style="{background:s.color}"></span>{{ s.name }} <span class="pc">{{ s.label }}</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" v-if="safety()">
+    <div class="card-h"><div class="t">安全线 · 满格资金 ÷ 本金</div><div class="d">ACTIVE + PAUSED 满格合计 <b>{{ safety().full }}</b> ÷ 本金 <b>{{ safety().principal }}</b></div></div>
+    <div class="card-b">
+      <div class="safe-wrap">
+        <div class="safe-scale">
+          <div class="safe-fill" :style="{width:Math.min(100,safety().ratioPct)+'%'}"></div>
+          <div class="safe-warnline" style="left:70%;"></div>
+          <div class="safe-warnlab" style="left:70%;">警告线 70%</div>
+          <div class="safe-ptr" :style="{left:Math.min(98,safety().ratioPct)+'%'}"><span class="pv">{{ safety().ratioPct }}%</span><div class="pd"></div></div>
+        </div>
+        <div class="safe-ticks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
+      </div>
+    </div>
+    <div class="note">若所有网格按计划买满，需动用本金的 {{ safety().ratioPct }}%；现金 {{ safety().cash }}，缺口 {{ safety().gap }}。{{ safety().warn ? '已越过警告线：新建计划前请先缩减格数或每格金额。' : '处于安全区。' }}</div>
+  </div>
+
+  <div class="grid2" style="grid-template-columns:1.15fr 1fr;">
+    <div class="card">
+      <div class="card-h"><div class="t">底仓持仓</div><div class="d">非网格的手工持仓 + 网格留存</div></div>
+      <div class="card-b" style="padding-left:10px;padding-right:10px;" v-if="coreRows().length">
+        <table>
+          <thead><tr><th class="l">标的</th><th>份额</th><th>成本</th><th>市值</th><th>浮盈</th></tr></thead>
+          <tbody>
+            <tr v-for="p in coreRows()" :key="p.symbol">
+              <td class="l"><span class="sym">{{ p.symbol_name || p.symbol }}<small>{{ p.symbol }}</small></span></td>
+              <td>{{ p.shares.toLocaleString('zh-CN') }}</td><td>{{ fmt(p.avg_cost,3) }}</td>
+              <td>{{ p.market_value != null ? fmt(p.market_value,0) : '—' }}</td>
+              <td :style="{color:p.unrealized_pnl>=0?'var(--accent)':'var(--red-ink)',fontWeight:600}">{{ p.unrealized_pnl != null ? (p.unrealized_pnl>=0?'+':'')+fmt(p.unrealized_pnl,0) : '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="empty-note" v-else>没有底仓持仓 · 录入成交时不关联计划即计入底仓</div>
+      <div class="note" v-if="retainedRows().length">留存底仓（网格 2.0 零成本份额）：{{ retainedRows().map(r=>`${r.symbol_name||r.symbol} ${r.shares}股`).join('、') }}</div>
+    </div>
+    <div class="card">
+      <div class="card-h"><div class="t">资金流水</div><div class="d">本金 = Σ入金 − Σ出金</div></div>
+      <div class="card-b" style="padding-left:10px;padding-right:10px;" v-if="flowRows().length">
+        <table>
+          <thead><tr><th class="l">日期</th><th class="l">方向</th><th>金额</th><th class="l">备注</th><th class="l"></th></tr></thead>
+          <tbody>
+            <tr v-for="f in flowRows()" :key="f.id">
+              <td class="l">{{ f.flow_date }}</td>
+              <td class="l"><span class="dir" :class="f.direction==='deposit'?'buy':'sell'"><i></i>{{ f.direction==='deposit'?'入金':'出金' }}</span></td>
+              <td>{{ fmt(f.amount,0) }}</td><td class="l" style="color:var(--muted);">{{ f.note || '' }}</td>
+              <td class="l"><button class="btn sm danger" @click="delFlow(f,$event.currentTarget)">删</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="empty-note" v-else>还没有资金流水</div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 复盘（杂志模式） ==================== -->
+<section class="page" :class="{on:tab==='review'}" v-show="tab==='review'">
+  <div class="ed">
+    <div class="pagehead">
+      <h1>复盘</h1>
+      <p>网格的钱是一格一格套利攒出来的。本页回答三个问题：赚了多少、纪律执行得怎样、下周怎么办。</p>
+      <div class="spacer"></div>
+      <button class="btn primary" @click="runWeekly()" v-if="ai.enabled">{{ weekly ? '收起周报' : weeklyLoading ? '生成中…' : '✦ AI 周报复述' }}</button>
+    </div>
+
+    <div class="ed-sec">
+      <div class="ed-kpis">
+        <div class="ed-kpi" v-for="k in rvKpis()" :key="k.k">
+          <div class="k">{{ k.k }}</div><div class="v" :class="k.cls">{{ k.v }}</div><div class="f">{{ k.f }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ed-sec" v-if="weekly || weeklyLoading">
+      <div class="ed-h"><span class="no">一</span><span class="t">周报复述</span><span class="d">AI 研究助手 · 按周缓存 · 不构成投资建议</span></div>
+      <div class="ai-week" v-if="weekly">
+        <div class="wt">本周网格周报 <span class="sub">{{ ai.model || 'AI' }} 生成</span></div>
+        <div class="wk-sec"><div class="wk-k">本周做了什么</div><div class="wk-p">{{ weekly.done }}</div></div>
+        <div class="wk-sec"><div class="wk-k">纪律检查</div><div class="wk-p">{{ weekly.discipline }}</div></div>
+        <div class="wk-sec"><div class="wk-k">下周关注</div><div class="wk-p">{{ weekly.next }}</div></div>
+        <div class="wk-disc">AI 定位是研究助手：复述数据、提示纪律，不给买卖指令。</div>
+      </div>
+      <div class="ai-week" v-else><div class="ai-loading">AI 正在撰写周报…</div></div>
+    </div>
+
+    <div class="ed-sec">
+      <div class="ed-h"><span class="no">二</span><span class="t">分计划复盘</span><span class="d">回合 = 一次完整的买→卖 · 含已归档计划</span></div>
+      <div v-if="planRows().length">
+        <table>
+          <thead><tr><th class="l">计划</th><th>版本</th><th>套利回合</th><th>已实现</th><th>留存</th><th>该买没买</th><th>该卖没卖</th><th class="l">状态</th></tr></thead>
+          <tbody>
+            <tr class="clk" v-for="p in planRows()" :key="p.plan_id" @click="open(p.plan_id)">
+              <td class="l"><span class="sym">{{ p.name }}<small>{{ p.symbol }}</small></span></td>
+              <td>{{ p.version }}</td><td>{{ p.rounds }}</td>
+              <td :style="{color:p.realized_pnl>=0?'var(--pine)':'var(--seal)',fontWeight:600}">{{ p.realized_pnl>=0?'+':'' }}{{ fmt(p.realized_pnl,0) }}</td>
+              <td style="color:var(--amber-ink);">{{ p.retained_shares ? p.retained_shares + ' 股' : '—' }}</td>
+              <td :style="p.missed_buy>0?'color:var(--seal);font-weight:600;':''">{{ p.missed_buy }}</td>
+              <td :style="p.missed_sell>0?'color:var(--seal);font-weight:600;':''">{{ p.missed_sell }}</td>
+              <td class="l"><span class="chip" :class="statusChip[p.status]||'wait'">{{ p.status.toUpperCase() }}</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="empty-note" v-else>还没有计划可复盘</div>
+      <div class="ed-note">纪律判定：日线穿越档位价（±1% 容差）且七个交易日内无对应方向成交，记一次违约。网格收益 = 无数量级的小钱 × 次数 × 纪律——违约次数是比收益率更先看的指标。</div>
+    </div>
+
+    <div class="ed-sec" v-if="breakdown().length">
+      <div class="ed-h"><span class="no">三</span><span class="t">收益构成</span><span class="d">网格套利 vs 底仓浮盈 vs 留存</span></div>
+      <div class="card-b">
+        <div class="acct-bar" style="height:26px;"><i v-for="s in breakdown()" :key="s.name" :style="{width:s.pct+'%',background:s.color}" :title="s.name"></i></div>
+        <div class="acct-legend">
+          <div class="acct-leg" v-for="s in breakdown()" :key="s.name"><span class="sw" :style="{background:s.color}"></span>{{ s.name }} <span class="pc">{{ s.label }}</span></div>
+        </div>
+      </div>
+      <div class="ed-note">底仓吃趋势，网格吃震荡——两者不是竞争关系。上涨市里底仓占比高是正常的，不必因此怀疑网格。</div>
+    </div>
+  </div>
+</section>
+</main>
+
+<div class="footline">
+  <span>ETFWorld · 研究工具，不构成投资建议</span>
+  <span><a href="/legacy" style="color:inherit;">旧版界面</a> · 数据仅存本机</span>
+</div>
+
+<!-- 指数详情抽屉 -->
+<div id="backdrop" :class="{show:!!drawer}" @click="closeDrawer()"></div>
+<aside id="drawer" :class="{open:!!drawer}" aria-label="指数详情" v-if="drawerRow()">
+  <div class="dr-head">
+    <div class="dr-hrow"><span class="nm">{{ drawerRow().name }}</span><span class="cd">{{ drawerRow().ts_code }}</span><button class="dr-x" @click="closeDrawer()" aria-label="关闭">✕</button></div>
+    <div class="dr-chips">
+      <span class="chip blue">{{ drawerRow().category }}</span>
+      <span class="chip" :class="chipCls(drawerRow().level)">{{ drawerRow().verdict }}</span>
+      <span class="chip wait">评分 {{ drawerRow().score }}</span>
+    </div>
+  </div>
+  <div class="dr-body">
+    <div class="dr-sec">
+      <div class="st">估值带</div>
+      <div v-for="b in drawerBands()" :key="b.label" class="vband">
+        <span class="vl">{{ b.label }}</span>
+        <span class="vt"><i :style="{width:Math.max(2,Math.min(100,b.v))+'%',background:b.color}"></i></span>
+        <span class="vv" :style="{color:b.color}">{{ b.v }}%</span>
+      </div>
+      <div class="note" style="padding:8px 0 0;">分位越低越便宜；3y/5y 与 10y/全历史背离本身即是信息。</div>
+    </div>
+    <div class="dr-sec">
+      <div class="st">关键数据</div>
+      <div class="kv2"><div class="it" v-for="kv in drawerKv()" :key="kv[0]"><div class="k">{{ kv[0] }}</div><div class="vv" v-html="kv[1]"></div></div></div>
+    </div>
+    <div class="dr-sec" v-if="ai.enabled">
+      <div class="st">AI 研判</div>
+      <button class="btn" style="color:var(--accent);border-color:#86EFAC;" @click="runDrawerAi()" v-if="!drawerAi">✦ 生成研判</button>
+      <div class="ai-loading" v-if="drawerAiLoading">AI 正在研判…</div>
+      <div class="ai-block show" v-if="drawerAi">
+        <div class="ai-t">✦ AI 研判 · {{ drawerRow().name }}<span class="chip" :class="drawerAi.verdict==='适合'?'go':drawerAi.verdict==='不适合'?'no':'maybe'" style="margin-left:auto;">{{ drawerAi.verdict }}</span></div>
+        <div class="ai-sec"><div class="ai-k">结论</div><div class="ai-p">{{ drawerAi.oneLine }}</div></div>
+        <div class="ai-sec" v-if="drawerAi.detail"><div class="ai-k">深入解读</div><div class="ai-p">{{ drawerAi.detail }}</div></div>
+        <div class="ai-sec" v-if="drawerAi.reasons && drawerAi.reasons.length"><div class="ai-k">关键依据</div><div class="ai-p mute" v-for="r in drawerAi.reasons" :key="r">· {{ r }}</div></div>
+        <div class="ai-sec" v-if="drawerAi.risks && drawerAi.risks.length"><div class="ai-k">风险提示</div><div class="ai-p mute" v-for="r in drawerAi.risks" :key="r">· {{ r }}</div></div>
+        <div class="ai-sec" v-if="drawerAi.paramHint"><div class="ai-k">参数倾向</div><div class="ai-p">{{ drawerAi.paramHint }}</div></div>
+        <div class="ai-disc">AI 定位是研究助手：解读数据、提示风险，不构成投资建议。按（标的, 数据日期）缓存。</div>
+      </div>
+    </div>
+  </div>
+  <div class="dr-foot">
+    <button class="btn primary" @click="goPlanner()">以此标的去规划 →</button>
+  </div>
+</aside>
+
+<!-- 弹层：资金流水 / 成交 / 设置 -->
+<div id="modal" :class="{show:!!modal}" @click="if($event.target===$event.currentTarget)closeModal()">
+  <div class="modal-card" v-if="modal==='fundflow'">
+    <div class="modal-head"><div class="t">记一笔资金流水</div><button class="dr-x" @click="closeModal()" aria-label="关闭">✕</button></div>
+    <div class="modal-body">
+      <div class="formgrid">
+        <div class="field"><label>日期</label><input v-model="flowForm.flow_date" type="date"></div>
+        <div class="field"><label>方向</label><select v-model="flowForm.direction"><option value="deposit">入金</option><option value="withdraw">出金</option></select></div>
+        <div class="field"><label>金额（元）</label><input v-model="flowForm.amount" type="number" min="0"></div>
+        <div class="field"><label>备注</label><input v-model="flowForm.note" placeholder="可选"></div>
+      </div>
+      <div class="note" style="padding:12px 0 0;">本金 = Σ入金 − Σ出金；现金 = 本金 − 持仓成本。流水只记账，不动银行卡。</div>
+    </div>
+    <div class="modal-foot"><button class="btn" @click="closeModal()">取消</button><button class="btn primary" @click="saveFundFlow()">保存</button></div>
+  </div>
+
+  <div class="modal-card" v-if="modal==='trade' && tradeForm">
+    <div class="modal-head"><div class="t">记一笔成交 · {{ tradeForm.symbol_name || tradeForm.symbol }}</div><button class="dr-x" @click="closeModal()" aria-label="关闭">✕</button></div>
+    <div class="modal-body">
+      <div class="formgrid">
+        <div class="field"><label>日期</label><input v-model="tradeForm.trade_date" type="date"></div>
+        <div class="field"><label>方向</label><select v-model="tradeForm.direction"><option value="buy">买入</option><option value="sell">卖出</option></select></div>
+        <div class="field"><label>成交价</label><input v-model="tradeForm.price" type="number" step="0.001"></div>
+        <div class="field"><label>份额</label><input v-model="tradeForm.shares" type="number" step="100"></div>
+        <div class="field"><label>手续费</label><input v-model="tradeForm.fee" type="number" step="0.01" placeholder="0"></div>
+        <div class="field"><label>备注</label><input v-model="tradeForm.note" placeholder="可选"></div>
+      </div>
+      <div class="note" style="padding:12px 0 0;">保存时自动匹配最近档位（±1.5% 容差），棋盘与留存随之更新。网格不自动下单，请在券商成交后再记录。</div>
+    </div>
+    <div class="modal-foot"><button class="btn" @click="closeModal()">取消</button><button class="btn primary" @click="saveTrade()">保存</button></div>
+  </div>
+
+  <div class="modal-card" v-if="modal==='settings' && settingsForm">
+    <div class="modal-head"><div class="t">设置</div><button class="dr-x" @click="closeModal()" aria-label="关闭">✕</button></div>
+    <div class="modal-body">
+      <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px;">TUSHARE 数据源 <span class="chip" :class="settings && settings.tushare_configured?'go':'wait'" style="margin-left:6px;">{{ settings && settings.tushare_configured ? '已配置' : '未配置' }}</span></div>
+      <div class="formgrid">
+        <div class="field"><label>Token（留空保留现有值）</label><input v-model="settingsForm.tushare_token" type="password" autocomplete="off"></div>
+        <div class="field"><label>API 地址</label><input v-model="settingsForm.tushare_api_url"></div>
+      </div>
+      <div class="btnrow"><button class="btn sm" @click="testProvider('tushare',$event.currentTarget)">测试连接</button>
+        <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;"><input type="checkbox" v-model="settingsForm.clear_tushare_token"> 清除已保存 Token</label></div>
+      <div style="font-size:12px;font-weight:700;color:var(--muted);margin:18px 0 8px;">AI 服务（任意 OpenAI 兼容端点） <span class="chip" :class="settings && settings.ai_configured?'go':'wait'" style="margin-left:6px;">{{ settings && settings.ai_configured ? '已配置' : '未配置' }}</span></div>
+      <div class="formgrid">
+        <div class="field"><label>API Key（留空保留现有值）</label><input v-model="settingsForm.ai_api_key" type="password" autocomplete="off"></div>
+        <div class="field"><label>API 地址</label><input v-model="settingsForm.ai_api_url"></div>
+        <div class="field"><label>模型</label><input v-model="settingsForm.ai_model"></div>
+      </div>
+      <div class="btnrow"><button class="btn sm" @click="testProvider('ai',$event.currentTarget)">测试连接</button>
+        <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;"><input type="checkbox" v-model="settingsForm.clear_ai_api_key"> 清除已保存 Key</label></div>
+      <div class="note" style="padding:14px 0 0;">密钥只保存在本机配置，不会通过接口回传完整值。数据更新：命令行 <code>python -m backend.init --update</code>。</div>
+    </div>
+    <div class="modal-foot"><button class="btn" @click="closeModal()">取消</button><button class="btn primary" @click="saveSettings()">保存设置</button></div>
+  </div>
+</div>
+
+<!-- toast -->
+<div id="toast" :class="{show:!!toastObj}" v-if="toastObj">
+  <span v-html="toastObj.msg"></span>
+  <button class="t-act" v-if="toastObj.action" @click="toastObj.action.fn();toastObj=null;">{{ toastObj.action.label }}</button>
+</div>
+
+<!-- 首启向导 -->
+<div id="onboard" :class="{show:obOpen}" v-if="obOpen">
+  <div class="ob-wrap">
+    <div class="ob-brand"><span class="sq"></span>ETFWorld <span style="color:var(--faint);font-weight:400;font-size:12.5px;">网格策略研究工具</span></div>
+    <div class="ob-steps">
+      <div class="ob-dot" :class="{done:obStep>1,cur:obStep===1}"></div>
+      <div class="ob-dot" :class="{done:obStep>2,cur:obStep===2}"></div>
+      <div class="ob-dot" :class="{cur:obStep===3}"></div>
+    </div>
+
+    <div class="ob-card" v-show="obStep===1">
+      <div class="ob-kick">WELCOME · 第 1 步 / 共 3 步</div>
+      <div class="ob-h">低估买入 · 波动套利 ·<br>不死标的 · 机械执行</div>
+      <div class="ob-p">ETFWorld 是一个<b>本地优先</b>的网格策略研究工具：看估值位置 → 找可交易 ETF → 设计网格 → 压力测试 → 记录执行与复盘。它<b>不连接券商、不自动下单</b>，数据和密钥都在你自己的电脑上。</div>
+      <div class="ob-disc">使用须知：ETFWorld 仅用于学习与辅助研究，不构成任何投资建议。估值分位、网格评分、回测结果与 AI 内容均基于历史数据与公开信息，不代表未来表现。市场有风险，投资决策与盈亏由使用者自行承担。外部数据源（Tushare 等）的可用性与准确性由数据提供方负责。</div>
+      <label class="ob-check"><input type="checkbox" v-model="obAgree"><span class="cb"></span>我已阅读并理解：本工具不构成投资建议，盈亏自负。</label>
+      <div class="ob-actions">
+        <button class="ob-btn" @click="closeOnboard(true)">先看看再说</button>
+        <button class="ob-btn primary" :disabled="!obAgree" @click="obGo(2)">同意并继续 →</button>
+      </div>
+    </div>
+
+    <div class="ob-card" v-show="obStep===2">
+      <div class="ob-kick">DATA SOURCE · 第 2 步 / 共 3 步</div>
+      <div class="ob-h">接入你的数据源</div>
+      <div class="ob-p">估值数据来自 Tushare Pro。Token 只保存在本机配置文件，不会上传到任何服务器。没有 Token？去官网免费注册一个即可。</div>
+      <div class="ob-field" style="margin-top:18px;">
+        <label>TUSHARE TOKEN</label>
+        <input placeholder="粘贴你的 Token" v-model="obToken">
+      </div>
+      <span class="ob-link" onclick="window.open('https://tushare.pro/register','_blank')">↗ 去 tushare.pro 免费获取 Token</span>
+      <div class="ob-testrow">
+        <button class="ob-test" @click="obTestToken()" :disabled="obTesting">{{ obTesting ? '连接中…' : '保存并测试连接' }}</button>
+        <span class="ob-teststat" :class="{ok:obTokenOk}">{{ obTestStat }}</span>
+      </div>
+      <div class="ob-actions">
+        <button class="ob-btn" @click="obGo(3)">跳过，稍后再配</button>
+        <button class="ob-btn primary" :disabled="!obTokenOk" @click="obGo(3)">继续 →</button>
+      </div>
+    </div>
+
+    <div class="ob-card" v-show="obStep===3">
+      <div class="ob-kick">BACKFILL · 第 3 步 / 共 3 步</div>
+      <div class="ob-h">回填历史估值</div>
+      <div class="ob-p">首次使用需要回填约 10 年历史行情（用于计算估值分位与波动率）。这一步只需做一次，之后每天增量更新。历史回填可能消耗你的 Tushare 接口额度。</div>
+      <div class="ob-testrow">
+        <button class="ob-test" @click="obBackfill()" :disabled="obBfRunning || obBfDone">{{ obBfDone ? '✓ 回填完成' : obBfRunning ? '回填中…' : '开始回填（约 1-3 分钟）' }}</button>
+      </div>
+      <div class="ob-plog" v-if="obBfLog">{{ obBfLog }}</div>
+      <div class="ob-actions">
+        <button class="ob-btn" @click="closeOnboard(true)">跳过，进系统看看</button>
+        <button class="ob-btn primary" :disabled="!obBfDone" @click="obFinish()">完成，去机会页 →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  风格小样 B · 研报杂志风（Editorial / Report）
+  同一「今天」页面内容，用于与风格 A（亮色极简）对比评审。
+  2026-07-21 · 静态原型，非生产代码 · 无外部请求
+  ============================================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>风格 B · 研报杂志风 — ETFWorld</title>
+<style>
+:root{
+  --paper:#F6F2E8; --card:#FCFAF3; --rule:#DCD5C3; --rule-soft:#E7E1D0;
+  --ink:#2A2620; --ink2:#57503F; --mute:#8A8270;
+  --seal:#B93A2B;                 /* 朱砂：极克制使用（章、关键警示） */
+  --pine:#3F6B4F;                 /* 松绿：正向/适合 */
+  --amber:#9A6B1E;
+  --serif:'Songti SC','STSong','Noto Serif SC','SimSun',serif;
+  --sans:-apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.75;-webkit-font-smoothing:antialiased;}
+.num{font-variant-numeric:tabular-nums;}
+
+/* 顶栏：报头 */
+header{border-bottom:2px solid var(--ink);background:var(--card);}
+.masthead{max-width:960px;margin:0 auto;padding:18px 24px 14px;display:flex;align-items:flex-end;gap:18px;}
+.brand{display:flex;align-items:center;gap:10px;}
+.brand .seal{width:26px;height:26px;background:var(--seal);color:#FCFAF3;font-family:var(--serif);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;border-radius:3px;line-height:1;}
+.brand .cn{font-family:var(--serif);font-size:21px;font-weight:700;letter-spacing:.12em;}
+.brand .en{font-size:10.5px;color:var(--mute);letter-spacing:.18em;margin-top:2px;}
+nav{display:flex;gap:4px;margin-left:auto;}
+nav a{font-size:13px;color:var(--ink2);text-decoration:none;padding:6px 12px;border-bottom:2px solid transparent;}
+nav a:hover{color:var(--ink);border-bottom-color:var(--rule);}
+nav a.on{color:var(--ink);font-weight:600;border-bottom-color:var(--seal);}
+.dateline{font-size:11.5px;color:var(--mute);text-align:right;line-height:1.5;}
+
+main{max-width:960px;margin:0 auto;padding:30px 24px 90px;}
+
+/* 报头导语 */
+.pagehead{border-bottom:1px solid var(--rule);padding-bottom:18px;margin-bottom:8px;}
+.pagehead h1{font-family:var(--serif);font-size:30px;font-weight:700;letter-spacing:.06em;}
+.pagehead .lede{color:var(--ink2);font-size:14px;margin-top:8px;}
+.pagehead .lede b{color:var(--ink);}
+
+/* 章节：中文编号 + 细分隔线 */
+section{margin-top:34px;}
+.sec-h{display:flex;align-items:baseline;gap:12px;border-bottom:1px solid var(--ink);padding-bottom:8px;margin-bottom:0;}
+.sec-h .no{font-family:var(--serif);font-size:17px;font-weight:700;color:var(--seal);}
+.sec-h .t{font-family:var(--serif);font-size:17px;font-weight:700;letter-spacing:.08em;}
+.sec-h .d{margin-left:auto;font-size:11.5px;color:var(--mute);}
+
+/* 报表：细线排印表 */
+table{width:100%;border-collapse:collapse;font-size:13.5px;}
+th{font-size:11.5px;font-weight:500;color:var(--mute);text-align:right;padding:10px 10px;border-bottom:1px solid var(--rule);letter-spacing:.04em;}
+th.l,td.l{text-align:left;}
+td{padding:11px 10px;border-bottom:1px solid var(--rule-soft);text-align:right;font-variant-numeric:tabular-nums;}
+tbody tr:hover{background:rgba(42,38,32,.025);}
+.dir{font-weight:600;font-size:13px;}
+.dir.buy{color:var(--pine);}.dir.sell{color:var(--seal);}
+.sym{font-weight:600;}
+.sym small{display:block;font-weight:400;color:var(--mute);font-size:11px;}
+.dist{font-size:12px;font-weight:700;}
+.dist.hot{color:var(--seal);}.dist.warm{color:var(--amber);}
+.link{font-size:12.5px;color:var(--pine);cursor:pointer;border-bottom:1px solid rgba(63,107,79,.4);padding-bottom:1px;}
+.link:hover{border-bottom-color:var(--pine);}
+.annot{font-size:12px;color:var(--mute);padding:10px 2px 0;line-height:1.7;}
+.annot::before{content:'注：';font-weight:600;}
+
+/* 警示栏：左侧竖线 + 编号 */
+.warn{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-top:1px solid var(--rule);}
+.wcell{padding:16px 18px 4px;border-right:1px solid var(--rule-soft);}
+.wcell:last-child{border-right:none;}
+.wcell .wt{font-family:var(--serif);font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px;}
+.wcell .wt .bar{width:4px;height:14px;background:var(--seal);}
+.wcell.amber .wt .bar{background:var(--amber);}
+.wcell .wb{font-size:12.5px;color:var(--ink2);line-height:1.7;margin-top:8px;}
+.wcell .wb b{font-variant-numeric:tabular-nums;}
+.wcell .wa{margin-top:9px;font-size:12.5px;}
+
+/* 组合一览：竖排分栏数字 */
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);border-top:1px solid var(--rule);}
+.kpi{padding:14px 14px 4px;border-right:1px solid var(--rule-soft);}
+.kpi:last-child{border-right:none;}
+.kpi .k{font-size:11px;color:var(--mute);letter-spacing:.06em;}
+.kpi .v{font-family:var(--serif);font-size:23px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums;}
+.kpi .v.pine{color:var(--pine);}
+.kpi .f{font-size:11px;color:var(--mute);margin-top:2px;}
+
+/* 双栏：机会 / 成交 */
+.cols{display:grid;grid-template-columns:1.25fr 1fr;gap:0;border-top:1px solid var(--rule);}
+.col{padding:14px 20px 10px 0;border-right:1px solid var(--rule-soft);}
+.col + .col{padding:14px 0 10px 20px;border-right:none;}
+.col-h{font-family:var(--serif);font-size:14.5px;font-weight:700;display:flex;justify-content:space-between;align-items:baseline;padding-bottom:6px;border-bottom:1px solid var(--rule);}
+.col-h .d{font-size:11.5px;color:var(--mute);font-family:var(--sans);font-weight:400;}
+.prow{display:flex;align-items:baseline;gap:10px;padding:10px 0;border-bottom:1px solid var(--rule-soft);cursor:pointer;}
+.prow:last-child{border-bottom:none;}
+.prow .no{font-family:var(--serif);font-weight:700;color:var(--mute);width:20px;}
+.prow .nm{font-weight:600;}
+.prow .tag{font-size:11px;color:var(--pine);border:1px solid rgba(63,107,79,.35);padding:1px 7px;border-radius:2px;margin-left:6px;}
+.prow .tag.amber{color:var(--amber);border-color:rgba(154,107,30,.4);}
+.prow .sub{font-size:11.5px;color:var(--mute);font-variant-numeric:tabular-nums;}
+.prow .sc{margin-left:auto;font-family:var(--serif);font-size:16px;font-weight:700;color:var(--pine);font-variant-numeric:tabular-nums;}
+.prow .sc.ink{color:var(--ink);}
+.trow{display:flex;align-items:baseline;gap:10px;padding:9px 0;border-bottom:1px solid var(--rule-soft);font-size:13px;}
+.trow:last-child{border-bottom:none;}
+.trow .d{font-weight:600;font-size:12.5px;width:34px;flex:none;}
+.trow .d.buy{color:var(--pine);}.trow .d.sell{color:var(--seal);}
+.trow .what{flex:1;min-width:0;}
+.trow .what .nm{font-weight:600;}
+.trow .what .sub{font-size:11px;color:var(--mute);font-variant-numeric:tabular-nums;}
+.trow .amt{font-variant-numeric:tabular-nums;font-weight:600;}
+.trow .amt.up{color:var(--pine);}
+
+/* 页脚 */
+footer{max-width:960px;margin:0 auto;padding:0 24px 40px;font-size:11.5px;color:var(--mute);border-top:1px solid var(--rule);padding-top:14px;display:flex;justify-content:space-between;}
+.proto{position:fixed;bottom:12px;right:16px;font-size:11px;color:var(--mute);}
+</style>
+</head>
+<body>
+<header><div class="masthead">
+  <div class="brand"><span class="seal">格</span><div><div class="cn">网格志</div><div class="en">ETFWORLD · GRID JOURNAL</div></div></div>
+  <nav>
+    <a class="on" href="#">今天</a><a href="#">机会</a><a href="#">规划</a><a href="#">计划</a><a href="#">组合</a><a href="#">复盘</a>
+  </nav>
+  <div class="dateline">二〇二六年七月二十一日 周二<br>收盘前二十五分钟</div>
+</div></header>
+
+<main>
+  <div class="pagehead">
+    <h1>今天</h1>
+    <div class="lede">先问今日<b>当何为</b>，再看组合与机会。网格不自动下单，以下为系统提醒，执行在你。</div>
+  </div>
+
+  <!-- 一、今日待办 -->
+  <section>
+    <div class="sec-h"><span class="no">一</span><span class="t">今日待办</span><span class="d">距现价不足百分之二者入列 · 共四条</span></div>
+    <table>
+      <thead><tr><th class="l">方向</th><th class="l">标的</th><th>档位价</th><th>份额</th><th>金额（元）</th><th class="l">所属计划</th><th>距触发</th><th class="l"></th></tr></thead>
+      <tbody>
+        <tr><td class="l"><span class="dir sell">卖出</span></td><td class="l"><span class="sym">沪深300ETF<small>510300</small></span></td><td>4.680</td><td>2,200</td><td>10,296</td><td class="l" style="color:var(--mute);">300网格 v2.0</td><td><span class="dist hot">0.6%</span></td><td class="l"><span class="link">知道了</span></td></tr>
+        <tr><td class="l"><span class="dir buy">买入</span></td><td class="l"><span class="sym">红利ETF<small>510880</small></span></td><td>2.831</td><td>3,500</td><td>9,909</td><td class="l" style="color:var(--mute);">红利网格 v1.0</td><td><span class="dist warm">1.4%</span></td><td class="l"><span class="link">知道了</span></td></tr>
+        <tr><td class="l"><span class="dir buy">买入</span></td><td class="l"><span class="sym">医药ETF<small>512010</small></span></td><td>0.418</td><td>24,000</td><td>10,032</td><td class="l" style="color:var(--mute);">医药网格 v1.0</td><td><span class="dist warm">1.2%</span></td><td class="l"><span class="link">知道了</span></td></tr>
+        <tr><td class="l"><span class="dir sell">卖出</span></td><td class="l"><span class="sym">沪深300ETF<small>510300</small></span></td><td>4.740</td><td>2,100</td><td>9,954</td><td class="l" style="color:var(--mute);">300网格 v2.0</td><td><span class="dist warm">1.9%</span></td><td class="l"><span class="link">知道了</span></td></tr>
+      </tbody>
+    </table>
+    <div class="annot">金额为档位价与份额之积；距触发为档位价与现价之距占现价之比。</div>
+  </section>
+
+  <!-- 二、警示 -->
+  <section>
+    <div class="sec-h"><span class="no">二</span><span class="t">警示三则</span><span class="d">破网一 · 高位一 · 越界一</span></div>
+    <div class="warn">
+      <div class="wcell">
+        <div class="wt"><span class="bar"></span>破网 · 证券网格</div>
+        <div class="wb">证券ETF 现价 <b>0.842</b>，已跌破最低档 G10 <b>0.868</b>（网外 −3.0%）。网格失效，不复产生新买卖，须人工择一处置：装死、接网或止损。</div>
+        <div class="wa"><span class="link">择处置 ▸</span></div>
+      </div>
+      <div class="wcell amber">
+        <div class="wt"><span class="bar"></span>高位运行 · 红利网格</div>
+        <div class="wb">红利ETF 现价 <b>3.072</b>，高于基准价 <b>2.980</b>（+3.1%）。网上方无单可挂，续涨则卖无可卖、买无可买，宜上移重开。</div>
+        <div class="wa"><span class="link">上移重开 ↑</span></div>
+      </div>
+      <div class="wcell amber">
+        <div class="wt"><span class="bar"></span>估值越界 · 沪深300</div>
+        <div class="wb">估值分位 <b>87.9%</b>，已逾五成警戒线。买入一侧当停，只卖不买；新增资金勿在此位置开网。</div>
+        <div class="wa"><span class="link">览机会页 →</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 三、组合一览 -->
+  <section>
+    <div class="sec-h"><span class="no">三</span><span class="t">组合一览</span><span class="d">单位：人民币</span></div>
+    <div class="kpis">
+      <div class="kpi"><div class="k">总资产</div><div class="v">34.6万</div><div class="f">较本金 +15.3%</div></div>
+      <div class="kpi"><div class="k">本金</div><div class="v">30.0万</div><div class="f">入金二笔</div></div>
+      <div class="kpi"><div class="k">底仓</div><div class="v">8.2万</div><div class="f">三只</div></div>
+      <div class="kpi"><div class="k">网格占用</div><div class="v">15.2万</div><div class="f">二计划</div></div>
+      <div class="kpi"><div class="k">现金</div><div class="v">6.8万</div><div class="f">可用弹药</div></div>
+      <div class="kpi"><div class="k">满格 / 本金</div><div class="v pine">51%</div><div class="f">安全线七成之内</div></div>
+    </div>
+  </section>
+
+  <!-- 四、机会与成交 -->
+  <section>
+    <div class="sec-h"><span class="no">四</span><span class="t">机会精选 · 最新成交</span><span class="d">评分降序 · 近四笔</span></div>
+    <div class="cols">
+      <div class="col">
+        <div class="col-h">机会精选<span class="d">览全部 →</span></div>
+        <div class="prow"><span class="no">壹</span><div><div class="nm">银行<span class="tag">适合开启</span></div><div class="sub">估值分位 8.2% · 年化波动 18.4% · 建议格距 4%</div></div><span class="sc">71.5</span></div>
+        <div class="prow"><span class="no">贰</span><div><div class="nm">中证红利<span class="tag">适合开启</span></div><div class="sub">估值分位 22.0% · 年化波动 15.2% · 建议格距 4%</div></div><span class="sc">68.4</span></div>
+        <div class="prow"><span class="no">叁</span><div><div class="nm">医药生物<span class="tag amber">可小仓试探</span></div><div class="sub">估值分位 12.6% · 年化波动 24.7% · 建议格距 5%</div></div><span class="sc ink">63.2</span></div>
+      </div>
+      <div class="col">
+        <div class="col-h">最新成交<span class="d">计划 →</span></div>
+        <div class="trow"><span class="d sell">卖出</span><div class="what"><div class="nm">沪深300ETF · G3</div><div class="sub">七月十八 · 3.790 × 2,600</div></div><span class="amt up">+518</span></div>
+        <div class="trow"><span class="d buy">买入</span><div class="what"><div class="nm">红利ETF · G1</div><div class="sub">七月十五 · 2.831 × 3,500</div></div><span class="amt">9,909</span></div>
+        <div class="trow"><span class="d sell">卖出</span><div class="what"><div class="nm">红利ETF · G2 留存</div><div class="sub">七月九 · 2.980 × 2,400</div></div><span class="amt up">+698</span></div>
+        <div class="trow"><span class="d buy">买入</span><div class="what"><div class="nm">证券ETF · G10 破网前</div><div class="sub">七月二 · 0.868 × 11,500</div></div><span class="amt">9,982</span></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer><span>网格志 · ETFWorld — 研究工具，不构成投资建议</span><span>本期数据截至二〇二六年七月二十一日</span></footer>
+<div class="proto">风格小样 B · 研报杂志风 · 评审用</div>
+</body>
+</html>

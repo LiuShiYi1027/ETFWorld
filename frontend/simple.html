@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ETFW · 网格助手（简单模式）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0E1216; --bg2:#11161C; --panel:#161C24; --panel2:#1A212B;
+  --line:#1b212a; --line2:#232A33; --line3:#2A323C;
+  --text:#D7DEE7; --muted:#9AA4B2; --faint:#7E8896;
+  --green:#45C76A; --red:#F05B50; --amber:#E2A93C; --grey:#767F8D; --blue:#5C9BF0;
+  --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+  --sans:'IBM Plex Sans','PingFang SC','Microsoft YaHei',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums;}
+a{color:inherit;}
+
+/* header */
+header{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:14px;height:54px;padding:0 18px;background:var(--bg2);border-bottom:1px solid var(--line2);}
+.app-id{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-weight:700;font-size:16px;letter-spacing:.04em;}
+.app-id .sq{width:14px;height:14px;border-radius:3px;background:var(--green);}
+.app-id b{color:#fff;}
+.modeseg{display:flex;align-items:center;border:1px solid var(--line3);border-radius:7px;overflow:hidden;font-family:var(--mono);font-size:12.5px;}
+.modeseg a,.modeseg span{padding:6px 13px;text-decoration:none;color:var(--muted);line-height:1;}
+.modeseg a:hover{color:var(--text);background:var(--panel);}
+.modeseg .on{background:var(--green);color:#06140b;font-weight:600;}
+.mkt{margin-left:auto;display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12.5px;color:var(--muted);}
+.mkt .dot{width:9px;height:9px;border-radius:50%;background:var(--grey);}
+
+main{max-width:760px;margin:0 auto;padding:26px 18px 80px;}
+.lede{margin:8px 2px 26px;color:var(--muted);font-size:15px;}
+.lede b{color:var(--text);}
+
+/* step */
+.step{margin-bottom:30px;}
+.step-h{display:flex;align-items:center;gap:12px;margin-bottom:16px;}
+.step-n{width:30px;height:30px;border-radius:50%;background:var(--green);color:#06140b;font-family:var(--mono);font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center;flex:none;}
+.step-t{font-size:19px;font-weight:600;color:#fff;}
+.step-sub{color:var(--faint);font-size:13px;margin-left:auto;font-family:var(--mono);}
+.card{background:var(--panel);border:1px solid var(--line2);border-radius:14px;padding:18px 20px;}
+.card + .card{margin-top:12px;}
+
+/* opportunity */
+.bignum{font-family:var(--mono);font-size:40px;font-weight:700;color:var(--green);line-height:1;}
+.bignum.dim{color:var(--muted);}
+.opp-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;}
+.opp-head .txt{font-size:16px;color:var(--text);}
+.pick{display:flex;align-items:center;gap:14px;padding:15px 4px;border-top:1px solid var(--line);cursor:pointer;}
+.pick:hover{background:var(--bg2);border-radius:10px;}
+.pick-rank{width:26px;height:26px;border-radius:7px;background:var(--green);color:#06140b;font-family:var(--mono);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex:none;}
+.pick-main{flex:1;min-width:0;}
+.pick-nm{font-size:16px;font-weight:600;}
+.pick-why{color:var(--muted);font-size:13px;margin-top:2px;}
+.pick-cta{font-family:var(--mono);font-size:13px;color:var(--green);white-space:nowrap;}
+.tag{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid;vertical-align:middle;margin-left:6px;}
+
+/* search */
+.searchrow{display:flex;gap:9px;}
+.searchrow input{flex:1;background:var(--bg);border:1px solid var(--line2);border-radius:9px;color:var(--text);font-size:15px;padding:11px 13px;outline:none;}
+.searchrow input:focus{border-color:var(--green);}
+.btn{font-family:var(--sans);font-size:14px;font-weight:600;padding:11px 18px;border-radius:9px;border:1px solid var(--line2);background:var(--panel2);color:var(--text);cursor:pointer;white-space:nowrap;}
+.btn:hover{border-color:var(--line3);}
+.btn.primary{background:var(--green);border-color:var(--green);color:#06140b;}
+.btn.primary:hover{filter:brightness(1.06);}
+.btn:disabled{opacity:.5;cursor:default;}
+.etf{display:flex;align-items:center;gap:12px;padding:13px 4px;border-top:1px solid var(--line);}
+.etf-main{flex:1;min-width:0;}
+.etf-nm{font-size:15px;font-weight:500;}
+.etf-sub{font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:2px;}
+.etf-px{font-family:var(--mono);font-size:15px;font-weight:600;text-align:right;}
+.hint{color:var(--faint);font-size:13px;margin-top:12px;line-height:1.7;}
+.chosen{display:flex;align-items:center;gap:10px;background:rgba(69,199,106,.08);border:1px solid rgba(69,199,106,.4);border-radius:10px;padding:12px 14px;margin-bottom:14px;}
+.chosen .ok{color:var(--green);font-weight:700;}
+
+/* form */
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:13px;}
+.field label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px;}
+.field .unit{color:var(--faint);}
+.field input{width:100%;background:var(--bg);border:1px solid var(--line2);border-radius:9px;color:var(--text);font-family:var(--mono);font-size:16px;padding:11px 12px;outline:none;}
+.field input:focus{border-color:var(--green);}
+.field.err input{border-color:var(--red);}
+.field .msg{display:none;color:var(--red);font-size:12px;margin-top:5px;}
+.field.err .msg{display:block;}
+.adv{margin-top:14px;}
+.adv summary{cursor:pointer;color:var(--muted);font-size:13px;font-family:var(--mono);list-style:none;}
+.adv summary::-webkit-details-marker{display:none;}
+.adv summary::before{content:'▸ ';color:var(--faint);}
+.adv[open] summary::before{content:'▾ ';}
+.adv .fields{margin-top:13px;}
+.bigbtn{width:100%;margin-top:16px;font-size:16px;font-weight:700;padding:15px;border-radius:11px;border:none;background:var(--green);color:#06140b;cursor:pointer;}
+.bigbtn:hover{filter:brightness(1.06);}
+.bigbtn:disabled{opacity:.5;cursor:default;}
+
+/* result */
+.result .rt{font-size:14px;color:var(--muted);margin-bottom:14px;}
+.afford{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin-bottom:16px;}
+.afbox{background:var(--bg2);border:1px solid var(--line2);border-radius:11px;padding:15px 16px;}
+.afbox .k{font-size:13px;color:var(--muted);}
+.afbox .v{font-family:var(--mono);font-size:26px;font-weight:700;margin-top:6px;}
+.afbox .s{font-size:12px;color:var(--faint);margin-top:4px;}
+.verdict{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:11px;border:1px solid;font-size:14px;line-height:1.65;margin-bottom:16px;}
+.verdict .ic{font-size:18px;line-height:1.3;flex:none;}
+.ladder-mini{margin-top:4px;}
+.lm-row{display:flex;align-items:center;gap:10px;padding:9px 2px;border-top:1px solid var(--line);font-family:var(--mono);font-size:13px;}
+.lm-row .fall{color:var(--red);width:64px;}
+.lm-row .buy{color:var(--green);}
+.lm-row .sell{color:var(--amber);}
+.lm-row .amt{margin-left:auto;color:var(--muted);}
+
+/* plans */
+.plan{padding:15px 4px;border-top:1px solid var(--line);}
+.plan:first-child{border-top:none;}
+.plan-h{display:flex;align-items:center;gap:10px;}
+.plan-nm{font-size:16px;font-weight:600;flex:1;min-width:0;}
+.plan-st{font-family:var(--mono);font-size:11.5px;padding:3px 9px;border-radius:999px;border:1px solid;}
+.plan-meta{color:var(--muted);font-size:13px;margin-top:3px;}
+.posbar{height:9px;border-radius:5px;background:linear-gradient(90deg,var(--red),var(--amber),var(--green));position:relative;opacity:.92;margin-top:11px;}
+.posbar i{position:absolute;top:-3px;width:5px;height:15px;border-radius:2px;background:#fff;box-shadow:0 0 0 2px var(--panel);}
+.posmini{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11.5px;color:var(--faint);margin-top:7px;}
+.plan-actions{display:flex;gap:9px;margin-top:12px;}
+.btn.sm{font-size:13px;padding:7px 13px;}
+.btn.danger{color:var(--red);border-color:rgba(240,91,80,.4);}
+.btn.danger:hover{background:rgba(240,91,80,.1);}
+.btn.danger.confirming{background:rgba(240,91,80,.18);border-color:var(--red);}
+
+/* trades */
+.tsum{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin-bottom:6px;}
+.empty{color:var(--faint);text-align:center;padding:22px;font-size:14px;}
+.g{color:var(--green);}.r{color:var(--red);}.a{color:var(--amber);}.muted{color:var(--muted);}
+.loading{color:var(--muted);padding:14px 2px;font-size:14px;}
+.foot{margin-top:30px;text-align:center;color:var(--faint);font-size:13px;line-height:1.9;}
+.foot a{color:var(--green);text-decoration:none;}
+.disc{margin-top:14px;font-size:12px;color:var(--faint);line-height:1.7;}
+
+/* toast */
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(14px);opacity:0;display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line3);border-radius:11px;padding:12px 18px;font-size:14px;transition:.22s ease;pointer-events:none;max-width:90vw;z-index:60;box-shadow:0 14px 40px rgba(0,0,0,.5);}
+#toast::before{content:'';width:8px;height:8px;border-radius:2px;background:var(--green);flex:none;}
+#toast.err::before{background:var(--red);}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+#toast button{margin-left:6px;font-size:13px;font-weight:600;padding:5px 11px;border-radius:7px;border:1px solid var(--line3);background:var(--panel);color:var(--text);cursor:pointer;}
+
+@media(max-width:560px){
+  .fields,.afford,.tsum{grid-template-columns:1fr;}
+  .bignum{font-size:34px;}
+  main{padding:20px 14px 70px;}
+  .app-id .sfx{display:none;}
+  header{gap:10px;padding:0 14px;}
+}
+@media(prefers-reduced-motion:reduce){#toast{transition:opacity .01ms;}}
+</style>
+</head>
+<body>
+<header>
+  <div class="app-id"><span class="sq"></span> ETF<b>W</b><span class="sfx"> · 网格助手</span></div>
+  <div class="modeseg"><span class="on">简单</span><a href="/" title="切换到专业终端">专业</a></div>
+  <div class="mkt" id="mkt"><span class="dot"></span> 休市</div>
+</header>
+
+<main>
+  <p class="lede">三步走：<b>看今天有没有机会 → 选一只 ETF 设计网格 → 确认资金扛得住再开始。</b>低估值买、网格高抛低吸，把波动变成收益。</p>
+
+  <!-- STEP 1 -->
+  <section class="step" id="s1">
+    <div class="step-h"><span class="step-n">1</span><span class="step-t">今天适合开网格吗</span><a class="step-sub" id="s1-refresh" href="javascript:void 0">⟳ 刷新</a></div>
+    <div class="card" id="opp"><div class="loading">正在评估全市场指数…</div></div>
+  </section>
+
+  <!-- STEP 2 -->
+  <section class="step" id="s2">
+    <div class="step-h"><span class="step-n">2</span><span class="step-t">选一只能买的 ETF</span></div>
+    <div class="card">
+      <div id="chosen-wrap"></div>
+      <div class="searchrow">
+        <input id="q" placeholder="输入行业 / 主题，如 证券、白酒、医疗、光伏" autocomplete="off">
+        <button class="btn primary" id="search-btn">搜索</button>
+      </div>
+      <div id="etf-list"></div>
+      <div class="hint" id="etf-hint">指数本身不能直接买，要买跟踪它的 ETF。这里按成交额（流动性）排序，优先选成交额大的，别买没人交易的迷你基金。</div>
+    </div>
+  </section>
+
+  <!-- STEP 3 -->
+  <section class="step" id="s3">
+    <div class="step-h"><span class="step-n">3</span><span class="step-t">设计网格 · 看扛不扛得住</span></div>
+    <div class="card">
+      <div class="fields">
+        <div class="field"><label>每格投入 <span class="unit">元</span></label><input id="g-amount" type="number" inputmode="numeric" step="100" min="100" value="10000"><div class="msg">至少 100 元</div></div>
+        <div class="field"><label>网格数量 <span class="unit">格</span></label><input id="g-count" type="number" inputmode="numeric" step="1" min="1" max="50" value="10"><div class="msg">1–50 的整数</div></div>
+        <div class="field"><label>每格间距 <span class="unit">%</span></label><input id="g-step" type="number" inputmode="decimal" step="0.5" min="0.5" max="50" value="5"><div class="msg">0.5–50 之间</div></div>
+        <div class="field"><label>基准价（第一格买入价）</label><input id="g-base" type="number" inputmode="decimal" step="0.001" min="0.001" value="1.000"><div class="msg">需大于 0</div></div>
+      </div>
+      <details class="adv">
+        <summary>进阶选项（不懂可不填）</summary>
+        <div class="fields">
+          <div class="field"><label>逐格加码 <span class="unit">%</span>（越跌买越多）</label><input id="g-inc" type="number" inputmode="numeric" step="1" min="0" max="50" value="0"></div>
+          <div class="field"><label>留利润 <span class="unit">%</span>（网格2.0·攒底仓）</label><input id="g-ret" type="number" inputmode="numeric" step="1" min="0" max="100" value="0"></div>
+        </div>
+      </details>
+      <button class="bigbtn" id="preview-btn">看看要花多少、扛不扛得住</button>
+    </div>
+    <div class="card result" id="result" style="display:none"></div>
+  </section>
+
+  <!-- STEP 4 -->
+  <section class="step" id="s4">
+    <div class="step-h"><span class="step-n">4</span><span class="step-t">我的计划 &amp; 记一笔</span></div>
+    <div class="card"><div class="step-sub" style="margin:0 0 4px;color:var(--text);font-weight:600">已保存的计划</div><div id="plans"><div class="loading">加载中…</div></div></div>
+    <div class="card">
+      <div class="step-sub" style="margin:0 0 12px;color:var(--text);font-weight:600">记一笔成交</div>
+      <div class="fields">
+        <div class="field"><label>标的代码</label><input id="t-symbol" inputmode="numeric" placeholder="512880"><div class="msg">必填</div></div>
+        <div class="field"><label>名称（可选）</label><input id="t-sname" placeholder="证券ETF"></div>
+        <div class="field"><label>方向</label>
+          <select id="t-dir" style="width:100%;background:var(--bg);border:1px solid var(--line2);border-radius:9px;color:var(--text);font-family:var(--mono);font-size:16px;padding:11px 12px;outline:none;">
+            <option value="buy">买入</option><option value="sell">卖出</option></select></div>
+        <div class="field"><label>日期</label><input id="t-date" type="date"><div class="msg">必填</div></div>
+        <div class="field"><label>成交价</label><input id="t-price" type="number" inputmode="decimal" step="0.001" min="0.001"><div class="msg">需大于 0</div></div>
+        <div class="field"><label>份额（100 的整数倍）</label><input id="t-shares" type="number" inputmode="numeric" step="100" min="100"><div class="msg">&gt;0 且为 100 整数倍</div></div>
+      </div>
+      <button class="bigbtn" id="trade-btn" style="margin-top:14px">保存这笔成交</button>
+      <div class="tsum" id="tsum" style="margin-top:16px"></div>
+    </div>
+  </section>
+
+  <div class="foot">
+    想要散点图、回测、参数寻优、AI 研判？<a href="/">切换到专业终端 →</a>
+    <div class="disc">本工具仅供学习与辅助决策，<b style="color:var(--muted)">不构成任何投资建议</b>。低估≠不会跌，开网格前务必确认资金扛得住满仓。盈亏自负。</div>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s);
+function fmt(v,d=2){return v==null||isNaN(v)?'—':Number(v).toLocaleString('zh-CN',{minimumFractionDigits:d,maximumFractionDigits:d});}
+function wan(v){const a=Math.abs(v);return a>=10000?(v/10000).toFixed(1)+' 万':fmt(v,0);}
+async function api(path,opts={}){
+  const res=await fetch(path,{headers:{'Content-Type':'application/json'},...opts});
+  if(!res.ok){let e={};try{e=await res.json();}catch{}throw new Error(e.detail||res.statusText||('HTTP '+res.status));}
+  return res.json();
+}
+function toast(msg,opts={}){
+  const t=$('#toast');t.className='';if(opts.type==='err')t.classList.add('err');
+  if(opts.action){t.innerHTML='<span>'+msg+'</span><button id="toast-act">'+opts.action.label+'</button>';t.style.pointerEvents='auto';
+    t.querySelector('#toast-act').onclick=()=>{hide();opts.action.fn();};}
+  else{t.innerHTML='<span>'+msg+'</span>';t.style.pointerEvents='none';}
+  requestAnimationFrame(()=>t.classList.add('show'));clearTimeout(t._t);t._t=setTimeout(hide,opts.action?6000:3000);
+  function hide(){t.classList.remove('show');t.style.pointerEvents='none';}
+}
+
+/* 市场时钟 */
+function updateMkt(){const d=new Date(),day=d.getDay(),m=d.getHours()*60+d.getMinutes();
+  const open=day>=1&&day<=5&&((m>=570&&m<=690)||(m>=780&&m<=900));
+  $('#mkt').innerHTML='<span class="dot" style="background:'+(open?'var(--green)':'var(--grey)')+'"></span> '+(open?'交易中':'休市');}
+updateMkt();setInterval(updateMkt,30000);
+
+const zoneOf=p=>p==null?['—','var(--faint)']:p<20?['很低估','#45C76A']:p<40?['偏低','#84BB45']:p<60?['估值适中','#E2A93C']:p<80?['偏高','#E4823C']:['高估','#F05B50'];
+
+/* ===== STEP 1 · 机会 ===== */
+async function loadOpportunities(){
+  const box=$('#opp');box.innerHTML='<div class="loading">正在评估全市场指数…</div>';
+  let data;
+  try{data=await api('/api/readiness');}
+  catch(e){box.innerHTML='<div class="empty" style="color:var(--amber)">读取失败 · '+e.message+'</div>';return;}
+  const go=data.filter(d=>d.level==='go').sort((a,b)=>b.score-a.score);
+  if(!data.length){box.innerHTML='<div class="empty">还没有估值数据。<br>请管理员先回填行情数据（专业模式 → VALUATION → UPDATE DATA）。</div>';return;}
+  const head=go.length
+    ? '<div class="opp-head"><span class="bignum">'+go.length+'</span><span class="txt">个指数现在<b style="color:#fff"> 适合开网格</b> —— 估值低、波动也够。</span></div>'
+    : '<div class="opp-head"><span class="bignum dim">0</span><span class="txt">今天没有"很适合"的标的，<b style="color:#fff">再等更便宜</b>是更稳的选择。</span></div>';
+  const picks=go.slice(0,3).map((d,i)=>{const z=zoneOf(d.valuation_percentile);
+    return '<div class="pick" data-c="'+d.ts_code+'"><span class="pick-rank">'+(i+1)+'</span>'+
+      '<div class="pick-main"><div class="pick-nm">'+d.name+'<span class="tag" style="color:'+z[1]+';border-color:'+z[1]+'66">'+z[0]+'</span></div>'+
+      '<div class="pick-why">估值分位 '+(d.valuation_percentile==null?'—':d.valuation_percentile)+'（越低越便宜）· 年化波动 '+(d.volatility==null?'—':d.volatility.toFixed(0)+'%')+(d.suggested_grid?' · 建议每格 '+d.suggested_grid.grid_step+'%':'')+'</div></div>'+
+      '<span class="pick-cta">设计它的网格 →</span></div>';}).join('');
+  box.innerHTML=head+(picks||'<div class="hint" style="margin-top:14px">可以先到第 2 步自己搜一只 ETF，或切换专业模式看完整雷达。</div>');
+  box.querySelectorAll('.pick').forEach(p=>p.onclick=()=>chooseIndex(data.find(d=>d.ts_code===p.dataset.c)));
+}
+/* 从机会跳到第2步：带建议参数 + 自动搜 ETF */
+function chooseIndex(d){
+  if(!d)return;
+  if(d.suggested_grid){$('#g-step').value=d.suggested_grid.grid_step;$('#g-count').value=d.suggested_grid.grid_count;}
+  const kw=d.name.replace(/[ⅠⅡⅢⅣⅤ]/g,'').replace(/\(.*?\)/g,'').trim();
+  $('#q').value=kw;searchEtf();
+  toast('已带入「'+d.name+'」的建议参数，下面挑一只 ETF');
+  $('#s2').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+/* ===== STEP 2 · 选 ETF ===== */
+let chosen=null;
+async function searchEtf(){
+  const q=$('#q').value.trim();if(!q)return;
+  $('#etf-hint').textContent='搜索中…';$('#etf-list').innerHTML='';
+  let rows;
+  try{rows=await api('/api/etf/search?q='+encodeURIComponent(q));}
+  catch(e){$('#etf-hint').textContent='搜索失败 · '+e.message;return;}
+  if(!rows.length){$('#etf-hint').textContent='没找到与「'+q+'」相关的 ETF，换个关键词试试（如 证券 / 医疗 / 红利）。';return;}
+  $('#etf-list').innerHTML=rows.slice(0,8).map(r=>'<div class="etf"><div class="etf-main"><div class="etf-nm">'+(r.name||r.ts_code)+'</div>'+
+    '<div class="etf-sub">'+r.ts_code+' · 日成交额 '+fmt(r.amount_yi,1)+' 亿</div></div>'+
+    '<div class="etf-px">'+fmt(r.close,3)+'</div>'+
+    '<button class="btn sm" data-c=\''+JSON.stringify(r).replace(/'/g,'&#39;')+'\'>选它</button></div>').join('');
+  $('#etf-hint').textContent='共 '+rows.length+' 只，按成交额从大到小。点「选它」自动带入价格。';
+  $('#etf-list').querySelectorAll('button[data-c]').forEach(b=>b.onclick=()=>useEtf(JSON.parse(b.dataset.c)));
+}
+function useEtf(r){
+  const code=r.ts_code.split('.')[0];
+  chosen={code,name:r.name||code,close:r.close};
+  if(r.close!=null){$('#g-base').value=r.close;clearErr('#g-base');}
+  $('#etf-list').innerHTML='';$('#etf-hint').textContent='';
+  $('#chosen-wrap').innerHTML='<div class="chosen"><span class="ok">✓ 已选</span><div style="flex:1">'+chosen.name+' <span class="muted mono" style="font-size:13px">'+code+'</span></div><span class="mono muted">现价 '+fmt(r.close,3)+'</span></div>';
+  toast('已选 '+chosen.name+'，基准价填入现价 '+fmt(r.close,3));
+  $('#s3').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+/* ===== STEP 3 · 设计 + 压力测试 ===== */
+function setErr(sel,msg){const el=$(sel),f=el.closest('.field');if(!f)return;f.classList.toggle('err',!!msg);}
+function clearErr(sel){setErr(sel,'');}
+['#g-amount','#g-count','#g-step','#g-base'].forEach(s=>$(s).addEventListener('input',()=>clearErr(s)));
+function gridParams(){return{name:(chosen?chosen.name:'我的')+'网格',symbol:chosen?chosen.code:'',symbol_name:chosen?chosen.name:'',
+  base_price:+$('#g-base').value,grid_step:+$('#g-step').value,grid_count:+$('#g-count').value,amount_per_grid:+$('#g-amount').value,
+  step_increase:+$('#g-inc').value,profit_retention:+$('#g-ret').value};}
+function validate(){const checks=[['#g-amount',v=>+v>=100],['#g-count',v=>Number.isInteger(+v)&&+v>=1&&+v<=50],['#g-step',v=>+v>0&&+v<=50],['#g-base',v=>+v>0]];
+  let ok=true;checks.forEach(([s,fn])=>{const bad=!fn($(s).value);setErr(s,bad?'x':'');if(bad)ok=false;});return ok;}
+let lastPreview=null;
+async function preview(){
+  if(!validate()){toast('请检查标红的输入',{type:'err'});return;}
+  const p=gridParams();const btn=$('#preview-btn');btn.disabled=true;btn.textContent='计算中…';
+  let r;
+  try{r=await api('/api/grid/preview',{method:'POST',body:JSON.stringify(p)});}
+  catch(e){toast('计算失败 · '+e.message,{type:'err'});btn.disabled=false;btn.textContent='看看要花多少、扛不扛得住';return;}
+  btn.disabled=false;btn.textContent='重新计算';
+  lastPreview={p,r};renderResult(p,r);
+  $('#result').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function renderResult(p,r){
+  const pt=r.pressure_test||{},lv=r.levels||[];
+  const cap=pt.total_capital||0,loss=Math.abs(pt.max_unrealized_loss||0),lossPct=pt.max_unrealized_loss_pct||0,fall=pt.max_fall_pct||0;
+  const vcol=lossPct<=20?'var(--green)':lossPct<=35?'var(--amber)':'var(--red)';
+  const vmsg=lossPct<=20?'压力可控。确认你有这笔闲钱、并且能拿得住，就可以按下面档位实盘挂单了。'
+    :lossPct<=35?'浮亏不算小。务必用闲钱、做好长期持有的准备，跌到底也不慌。'
+    :'满仓浮亏较大。要么减少每格金额/格数，要么再等更低估值，别让自己扛不住。';
+  const mini=lv.slice(0,5).map(l=>'<div class="lm-row"><span class="fall">跌 '+fmt(l.fall_pct,1)+'%</span><span>买 <b class="buy">'+fmt(l.buy_price,3)+'</b></span><span>卖 <b class="sell">'+fmt(l.sell_price,3)+'</b></span><span class="amt">'+fmt(l.shares,0)+' 股</span></div>').join('');
+  $('#result').style.display='';
+  $('#result').innerHTML=
+    '<div class="rt">如果按这套参数把网格全部跌满：</div>'+
+    '<div class="afford">'+
+      '<div class="afbox"><div class="k">总共要准备</div><div class="v">¥'+wan(cap)+'</div><div class="s">满格全部买入所需资金</div></div>'+
+      '<div class="afbox"><div class="k">最深时浮亏</div><div class="v" style="color:var(--red)">¥'+wan(loss)+'</div><div class="s">约 -'+fmt(lossPct,1)+'% · 跌到 -'+fmt(fall,1)+'%</div></div>'+
+    '</div>'+
+    '<div class="verdict" style="color:'+vcol+';border-color:'+vcol+'55;background:'+vcol+'14"><span class="ic">'+(lossPct<=20?'✓':lossPct<=35?'!':'⚠')+'</span><div>'+vmsg+'</div></div>'+
+    '<div class="muted" style="font-size:13px;margin-bottom:4px">前几档买卖价（共 '+lv.length+' 档）</div>'+
+    '<div class="ladder-mini">'+mini+'</div>'+
+    '<button class="bigbtn" id="save-btn" style="margin-top:18px">'+(chosen?'保存这个计划':'填好标的后保存')+'</button>';
+  $('#save-btn').disabled=!chosen;
+  $('#save-btn').onclick=savePlan;
+}
+async function savePlan(){
+  if(!chosen){toast('请先在第 2 步选一只 ETF',{type:'err'});return;}
+  if(!validate()){toast('请检查参数',{type:'err'});return;}
+  const btn=$('#save-btn');btn.disabled=true;btn.textContent='保存中…';
+  try{const r=await api('/api/grid/plans',{method:'POST',body:JSON.stringify(gridParams())});
+    toast('已保存计划 · '+chosen.name+'网格');loadPlans();}
+  catch(e){toast('保存失败 · '+e.message,{type:'err'});}
+  btn.disabled=false;btn.textContent='保存这个计划';
+}
+
+/* ===== STEP 4 · 计划 + 交易 ===== */
+function planStatus(p,cur){
+  const lv=p.levels||[],low=lv.length?lv[lv.length-1].buy_price:p.base_price,top=p.base_price;
+  cur=cur!=null?cur:top;
+  const pct=Math.max(2,Math.min(98,(cur-low)/((top-low)||1)*100));
+  let s,c;if(cur<low){s='已跌破区间';c='var(--red)';}else if(cur>=top){s='高位运行';c='var(--green)';}else{s='区间内运行';c='var(--amber)';}
+  return {low,top,cur,pct,s,c};
+}
+let PLANS_CACHE=[];
+async function loadPlans(){
+  const box=$('#plans');box.innerHTML='<div class="loading">加载中…</div>';
+  let plans;try{plans=await api('/api/grid/plans');}catch(e){box.innerHTML='<div class="empty" style="color:var(--amber)">读取失败 · '+e.message+'</div>';return;}
+  PLANS_CACHE=plans;
+  if(!plans.length){box.innerHTML='<div class="empty">还没有计划。在上面第 3 步设计一个并保存吧。</div>';return;}
+  let quotes={};const syms=[...new Set(plans.map(p=>p.symbol).filter(Boolean))];
+  if(syms.length){try{quotes=await api('/api/quote?symbols='+encodeURIComponent(syms.join(',')));}catch{}}
+  box.innerHTML=plans.map(p=>{
+    const q=quotes[p.symbol],cur=q&&q.close!=null?q.close:p.base_price;
+    const st=planStatus(p,cur),verTxt=p.version==='2.0'?'网格2.0':'网格1.0';
+    return '<div class="plan" data-id="'+p.id+'"><div class="plan-h"><span class="plan-nm">'+p.name+'</span>'+
+      '<span class="plan-st" style="color:'+st.c+';border-color:'+st.c+'55">'+st.s+'</span></div>'+
+      '<div class="plan-meta">'+(p.symbol_name||p.symbol)+' · '+verTxt+' · '+p.grid_count+' 格 · 每格 '+fmt(p.grid_step,1)+'%</div>'+
+      '<div class="posbar"><i style="left:'+st.pct+'%"></i></div>'+
+      '<div class="posmini"><span>最低 '+fmt(st.low,3)+'</span><span style="color:var(--text)">现价 '+fmt(st.cur,3)+'</span><span>基准 '+fmt(st.top,3)+'</span></div>'+
+      '<div class="plan-actions"><button class="btn sm danger" data-d="'+p.id+'">删除</button></div></div>';
+  }).join('');
+  box.querySelectorAll('button[data-d]').forEach(b=>b.onclick=()=>{
+    if(b.classList.contains('confirming')){clearTimeout(b._t);delPlan(+b.dataset.d,b);return;}
+    document.querySelectorAll('.btn.confirming').forEach(x=>{x.classList.remove('confirming');x.textContent='删除';});
+    b.classList.add('confirming');b.textContent='确认删除?';b._t=setTimeout(()=>{b.classList.remove('confirming');b.textContent='删除';},3500);
+  });
+}
+async function delPlan(id,btn){
+  const removed=PLANS_CACHE.find(p=>p.id===id);
+  try{await api('/api/grid/plans/'+id,{method:'DELETE'});}catch(e){toast('删除失败 · '+e.message,{type:'err'});return;}
+  loadPlans();
+  toast('计划已删除',{action:{label:'撤销',fn:async()=>{
+    if(!removed)return;
+    try{await api('/api/grid/plans',{method:'POST',body:JSON.stringify({name:removed.name,symbol:removed.symbol,symbol_name:removed.symbol_name,
+      base_price:removed.base_price,grid_step:removed.grid_step,grid_count:removed.grid_count,amount_per_grid:removed.amount_per_grid,
+      step_increase:removed.step_increase,profit_retention:removed.profit_retention})});loadPlans();toast('已恢复');}
+    catch(e){toast('恢复失败 · '+e.message,{type:'err'});}
+  }}});
+}
+
+/* trades */
+function tErr(sel,bad){const f=$(sel).closest('.field');if(f)f.classList.toggle('err',bad);}
+['#t-symbol','#t-date','#t-price','#t-shares'].forEach(s=>$(s).addEventListener('input',()=>tErr(s,false)));
+async function addTrade(){
+  const checks=[['#t-symbol',v=>!!v.trim()],['#t-date',v=>!!v],['#t-price',v=>+v>0],['#t-shares',v=>+v>0&&+v%100===0]];
+  let ok=true;checks.forEach(([s,fn])=>{const bad=!fn($(s).value);tErr(s,bad);if(bad)ok=false;});
+  if(!ok){toast('请检查标红的输入',{type:'err'});return;}
+  const btn=$('#trade-btn');btn.disabled=true;
+  try{await api('/api/trades',{method:'POST',body:JSON.stringify({symbol:$('#t-symbol').value.trim(),symbol_name:$('#t-sname').value,
+    trade_date:$('#t-date').value,direction:$('#t-dir').value,price:+$('#t-price').value,shares:+$('#t-shares').value,fee:0})});
+    ['#t-symbol','#t-sname','#t-price','#t-shares'].forEach(s=>$(s).value='');
+    toast('已记录这笔成交');loadSummary();}
+  catch(e){toast('保存失败 · '+e.message,{type:'err'});}
+  btn.disabled=false;
+}
+async function loadSummary(){
+  let s;try{s=await api('/api/summary');}catch(e){return;}
+  const r=s.total_realized_pnl||0;
+  $('#tsum').innerHTML=
+    '<div class="afbox"><div class="k">已实现收益</div><div class="v" style="font-size:22px;color:'+(r>0?'var(--green)':r<0?'var(--red)':'var(--text)')+'">'+(r>=0?'+':'')+'¥'+fmt(r,0)+'</div></div>'+
+    '<div class="afbox"><div class="k">当前持仓</div><div class="v" style="font-size:22px">'+s.position_count+' <span style="font-size:14px;color:var(--muted)">只 · 成本 ¥'+wan(s.total_holding_cost||0)+'</span></div></div>';
+}
+
+/* ===== init ===== */
+$('#s1-refresh').onclick=loadOpportunities;
+$('#search-btn').onclick=searchEtf;$('#q').onkeydown=e=>{if(e.key==='Enter')searchEtf();};
+$('#preview-btn').onclick=preview;
+$('#trade-btn').onclick=addTrade;
+$('#t-date').value=new Date().toISOString().slice(0,10);
+loadOpportunities();loadPlans();loadSummary();
+</script>
+</body>
+</html>

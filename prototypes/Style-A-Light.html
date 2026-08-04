@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  风格小样 A · 亮色极简（Light Minimal）
+  同一「今天」页面内容，用于与风格 B（研报杂志风）对比评审。
+  2026-07-21 · 静态原型，非生产代码 · 无外部请求
+  ============================================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>风格 A · 亮色极简 — ETFWorld</title>
+<style>
+:root{
+  --bg:#FAFAF8; --card:#FFFFFF; --line:#E9E7E1; --line2:#F1EFEA;
+  --text:#1C1917; --muted:#78716C; --faint:#A8A29E;
+  --accent:#16A34A; --accent-soft:#F0FDF4;
+  --red:#DC2626; --red-soft:#FEF2F2; --amber:#B45309; --amber-soft:#FFFBEB;
+  --blue:#2563EB;
+  --sans:-apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+.num{font-variant-numeric:tabular-nums;letter-spacing:-.01em;}
+
+/* 顶栏：轻、留白、中文为主 */
+header{position:sticky;top:0;z-index:30;background:rgba(250,250,248,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);}
+.hd{max-width:1080px;margin:0 auto;height:60px;display:flex;align-items:center;gap:26px;padding:0 24px;}
+.brand{display:flex;align-items:center;gap:9px;font-weight:700;font-size:15px;}
+.brand .sq{width:12px;height:12px;border-radius:4px;background:var(--accent);}
+nav{display:flex;gap:2px;}
+nav a{font-size:13.5px;color:var(--muted);text-decoration:none;padding:7px 13px;border-radius:8px;transition:.12s;}
+nav a:hover{color:var(--text);background:var(--line2);}
+nav a.on{color:var(--text);font-weight:600;background:var(--line2);}
+.hd .right{margin-left:auto;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--faint);}
+.dot-live{width:7px;height:7px;border-radius:50%;background:var(--accent);display:inline-block;margin-right:5px;}
+
+main{max-width:1080px;margin:0 auto;padding:32px 24px 80px;}
+.pagehead{margin-bottom:26px;}
+.pagehead h1{font-size:24px;font-weight:700;letter-spacing:-.01em;}
+.pagehead p{color:var(--muted);font-size:13.5px;margin-top:5px;}
+
+/* 卡片：白底细边、微圆角、几乎无阴影 */
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:20px;overflow:hidden;}
+.card-h{display:flex;align-items:baseline;justify-content:space-between;padding:16px 20px 0;}
+.card-h .t{font-size:14.5px;font-weight:600;}
+.card-h .d{font-size:12px;color:var(--faint);}
+.card-b{padding:12px 20px 16px;}
+
+/* 待办表：安静的表格，方向用色点 */
+table{width:100%;border-collapse:collapse;font-size:13.5px;}
+th{font-size:11.5px;font-weight:500;color:var(--faint);text-align:right;padding:8px 10px;border-bottom:1px solid var(--line);}
+th.l,td.l{text-align:left;}
+td{padding:11px 10px;border-bottom:1px solid var(--line2);text-align:right;font-variant-numeric:tabular-nums;}
+tr:last-child td{border-bottom:none;}
+tbody tr{transition:.1s;}
+tbody tr:hover{background:#FCFCFB;}
+.dir{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;}
+.dir i{width:7px;height:7px;border-radius:50%;}
+.dir.buy{color:var(--accent);}.dir.buy i{background:var(--accent);}
+.dir.sell{color:var(--red);}.dir.sell i{background:var(--red);}
+.sym{font-weight:600;}
+.sym small{display:block;font-weight:400;color:var(--faint);font-size:11.5px;}
+.pill{font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:6px;}
+.pill.hot{background:var(--red-soft);color:var(--red);}
+.pill.warm{background:var(--amber-soft);color:var(--amber);}
+.btn{font-size:12.5px;font-weight:600;padding:6px 13px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--text);cursor:pointer;transition:.12s;}
+.btn:hover{border-color:#D6D3CB;}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+.btn.primary:hover{filter:brightness(1.05);}
+.note{font-size:12px;color:var(--faint);padding:0 20px 14px;}
+
+/* 提醒（预警灯 → 轻色卡片） */
+.alerts{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px;}
+.alert{border-radius:14px;padding:15px 17px;border:1px solid;}
+.alert.crit{background:var(--red-soft);border-color:#FECACA;}
+.alert.warnl{background:var(--amber-soft);border-color:#FDE68A;}
+.alert .at{font-size:12px;font-weight:700;letter-spacing:.02em;}
+.alert.crit .at{color:var(--red);}.alert.warnl .at{color:var(--amber);}
+.alert .ab{font-size:13px;line-height:1.65;margin-top:7px;color:#44403C;}
+.alert .ab b{font-variant-numeric:tabular-nums;}
+.alert .aa{margin-top:11px;display:flex;gap:8px;}
+.alert .btn{background:rgba(255,255,255,.75);}
+
+/* KPI：安静的大数字 */
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:14px;margin-bottom:20px;}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;}
+.kpi .k{font-size:11.5px;color:var(--faint);}
+.kpi .v{font-size:22px;font-weight:700;margin-top:5px;letter-spacing:-.02em;font-variant-numeric:tabular-nums;}
+.kpi .v.good{color:var(--accent);}
+.kpi .f{font-size:11.5px;color:var(--faint);margin-top:3px;}
+
+/* 双栏列表 */
+.grid2{display:grid;grid-template-columns:1.3fr 1fr;gap:14px;}
+.row{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--line2);cursor:pointer;transition:.1s;}
+.row:last-child{border-bottom:none;}
+.row:hover{background:#FCFCFB;}
+.rank{width:22px;height:22px;border-radius:7px;background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;}
+.row .nm{font-weight:600;font-size:13.5px;}
+.row .sub{font-size:11.5px;color:var(--faint);margin-top:1px;font-variant-numeric:tabular-nums;}
+.row .sc{margin-left:auto;font-weight:700;font-variant-numeric:tabular-nums;}
+.row .sc.good{color:var(--accent);}
+.chip{font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent);}
+.amt{font-variant-numeric:tabular-nums;font-weight:600;font-size:13px;}
+.amt.up{color:var(--accent);}
+
+.proto{position:fixed;bottom:14px;right:16px;font-size:11px;color:var(--faint);}
+</style>
+</head>
+<body>
+<header><div class="hd">
+  <div class="brand"><span class="sq"></span>ETFWorld</div>
+  <nav>
+    <a class="on" href="#">今天</a><a href="#">机会</a><a href="#">规划</a><a href="#">计划</a><a href="#">组合</a><a href="#">复盘</a>
+  </nav>
+  <div class="right"><span><span class="dot-live"></span>交易中 14:35</span><span>2026-07-21</span><span>⚙</span></div>
+</div></header>
+
+<main>
+  <div class="pagehead">
+    <h1>今天</h1>
+    <p>先看今天要做什么，再看组合与机会 · 周二，收盘前 25 分钟</p>
+  </div>
+
+  <!-- 今日待办 -->
+  <div class="card">
+    <div class="card-h"><div class="t">今日待办</div><div class="d">距现价 &lt;2% 的档位 · 4 条</div></div>
+    <div class="card-b" style="padding-left:10px;padding-right:10px;">
+      <table>
+        <thead><tr><th class="l">方向</th><th class="l">标的</th><th>档位价</th><th>份额</th><th>金额</th><th class="l">所属计划</th><th>距触发</th><th class="l"></th></tr></thead>
+        <tbody>
+          <tr><td class="l"><span class="dir sell"><i></i>卖出</span></td><td class="l"><span class="sym">沪深300ETF<small>510300</small></span></td><td>4.680</td><td>2,200</td><td>10,296</td><td class="l" style="color:var(--muted);">300网格 v2.0</td><td><span class="pill hot">0.6%</span></td><td class="l"><button class="btn">知道了</button></td></tr>
+          <tr><td class="l"><span class="dir buy"><i></i>买入</span></td><td class="l"><span class="sym">红利ETF<small>510880</small></span></td><td>2.831</td><td>3,500</td><td>9,909</td><td class="l" style="color:var(--muted);">红利网格 v1.0</td><td><span class="pill warm">1.4%</span></td><td class="l"><button class="btn">知道了</button></td></tr>
+          <tr><td class="l"><span class="dir buy"><i></i>买入</span></td><td class="l"><span class="sym">医药ETF<small>512010</small></span></td><td>0.418</td><td>24,000</td><td>10,032</td><td class="l" style="color:var(--muted);">医药网格 v1.0</td><td><span class="pill warm">1.2%</span></td><td class="l"><button class="btn">知道了</button></td></tr>
+          <tr><td class="l"><span class="dir sell"><i></i>卖出</span></td><td class="l"><span class="sym">沪深300ETF<small>510300</small></span></td><td>4.740</td><td>2,100</td><td>9,954</td><td class="l" style="color:var(--muted);">300网格 v2.0</td><td><span class="pill warm">1.9%</span></td><td class="l"><button class="btn">知道了</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">网格不自动下单，待办只负责提醒，纪律由你执行。</div>
+  </div>
+
+  <!-- 提醒 -->
+  <div class="alerts">
+    <div class="alert crit">
+      <div class="at">破网 · 证券网格</div>
+      <div class="ab">证券ETF 现价 <b>0.842</b>，已跌破最低档 G10 <b>0.868</b>（网外 -3.0%）。网格已失效，需人工处置。</div>
+      <div class="aa"><button class="btn">处置 ▸</button></div>
+    </div>
+    <div class="alert warnl">
+      <div class="at">高位运行 · 红利网格</div>
+      <div class="ab">红利ETF 现价 <b>3.072</b>，高于基准价 <b>2.980</b>（+3.1%）。继续上涨将卖无可卖、买无可买。</div>
+      <div class="aa"><button class="btn">↑ 上移重开</button></div>
+    </div>
+    <div class="alert warnl">
+      <div class="at">估值越界 · 沪深300</div>
+      <div class="ab">估值分位 <b>87.9%</b>，已涨过 50% 警戒线。建议买入侧暂停，只卖不买。</div>
+      <div class="aa"><button class="btn">去机会页 →</button></div>
+    </div>
+  </div>
+
+  <!-- 组合概览 -->
+  <div class="kpis">
+    <div class="kpi"><div class="k">总资产</div><div class="v">¥34.6万</div><div class="f">vs 本金 +15.3%</div></div>
+    <div class="kpi"><div class="k">本金</div><div class="v">¥30万</div><div class="f">2 笔入金</div></div>
+    <div class="kpi"><div class="k">底仓</div><div class="v">8.2万</div><div class="f">3 只</div></div>
+    <div class="kpi"><div class="k">网格占用</div><div class="v">15.2万</div><div class="f">2 个计划</div></div>
+    <div class="kpi"><div class="k">现金</div><div class="v">6.8万</div><div class="f">可用弹药</div></div>
+    <div class="kpi"><div class="k">满格 / 本金</div><div class="v good">51%</div><div class="f">安全线 70% 内</div></div>
+  </div>
+
+  <!-- 机会 + 成交 -->
+  <div class="grid2">
+    <div class="card" style="margin-bottom:0;">
+      <div class="card-h"><div class="t">机会精选</div><div class="d">全部 →</div></div>
+      <div class="card-b" style="padding:8px 0 10px;">
+        <div class="row"><span class="rank">1</span><div><div class="nm">银行 <span class="chip">适合开启</span></div><div class="sub">估值分位 8.2% · 年化波动 18.4% · 建议格距 4%</div></div><div class="sc good">71.5</div></div>
+        <div class="row"><span class="rank">2</span><div><div class="nm">中证红利 <span class="chip">适合开启</span></div><div class="sub">估值分位 22.0% · 年化波动 15.2% · 建议格距 4%</div></div><div class="sc good">68.4</div></div>
+        <div class="row"><span class="rank" style="background:var(--amber-soft);color:var(--amber);">3</span><div><div class="nm">医药生物 <span class="chip" style="background:var(--amber-soft);color:var(--amber);">可小仓试探</span></div><div class="sub">估值分位 12.6% · 年化波动 24.7% · 建议格距 5%</div></div><div class="sc">63.2</div></div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:0;">
+      <div class="card-h"><div class="t">最新成交</div><div class="d">计划 →</div></div>
+      <div class="card-b" style="padding:8px 0 10px;">
+        <div class="row"><span class="dir sell"><i></i></span><div><div class="nm">沪深300ETF <span style="color:var(--faint);font-size:11.5px;">G3</span></div><div class="sub">07-18 · 3.790 × 2,600</div></div><div class="amt up">+518</div></div>
+        <div class="row"><span class="dir buy"><i></i></span><div><div class="nm">红利ETF <span style="color:var(--faint);font-size:11.5px;">G1</span></div><div class="sub">07-15 · 2.831 × 3,500</div></div><div class="amt">9,909</div></div>
+        <div class="row"><span class="dir sell"><i></i></span><div><div class="nm">红利ETF <span style="color:var(--faint);font-size:11.5px;">G2 · 留存</span></div><div class="sub">07-09 · 2.980 × 2,400</div></div><div class="amt up">+698</div></div>
+        <div class="row"><span class="dir buy"><i></i></span><div><div class="nm">证券ETF <span style="color:var(--faint);font-size:11.5px;">G10 · 破网前</span></div><div class="sub">07-02 · 0.868 × 11,500</div></div><div class="amt">9,982</div></div>
+      </div>
+    </div>
+  </div>
+</main>
+<div class="proto">风格小样 A · 亮色极简 · 2026-07-21 · 评审用</div>
+</body>
+</html>
