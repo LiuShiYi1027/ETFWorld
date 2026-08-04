@@ -73,19 +73,21 @@ ETFWorld 是研究与记录工具，不是交易系统：
 
 ## 使用桌面版
 
-### macOS
+从 [GitHub Releases](https://github.com/LiuShiYi1027/ETFWorld/releases) 下载最新版本：
 
-从 GitHub Releases 下载最新版本，将 `ETFWorld.app` 移动到"应用程序"目录后打开。
-
-当前发布包面向 Apple Silicon Mac。未签名或未公证的开发版本首次打开时，可能需要在 Finder 中右键选择"打开"。
+- **macOS**（Apple Silicon）：解压后将 `ETFWorld.app` 移入"应用程序"。未签名的构建首次打开需在 Finder 中右键选择"打开"。
+- **Windows**：解压后运行 `ETFWorld.exe`。未签名的构建首次运行可能触发 SmartScreen 提示，选择"仍要运行"即可。
 
 首次启动会进入**首启向导**：阅读免责说明 → 填入自己的 Tushare Token → 回填历史数据，三步完成初始化。用户数据存放在：
 
 ```text
-~/Library/Application Support/ETFWorld/
+macOS:   ~/Library/Application Support/ETFWorld/
+Windows: %APPDATA%\ETFWorld\
 ```
 
-升级或移动 `ETFWorld.app` 不会覆盖这里的数据。
+升级或重新安装不会覆盖这里的数据。
+
+> 维护者说明：在仓库 Variables 中设置 `MACOS_SIGNING=true` 并配置签名 Secrets（见 `.github/workflows/release.yml` 注释）后，Release 流水线会自动产出签名+公证的 macOS 构建。
 
 ## 从源码运行
 
@@ -159,8 +161,9 @@ python -m backend.init --update
 pip install pytest httpx
 python -m pytest
 
-# 构建 macOS 应用
-pyinstaller ETFWorld.spec --clean --noconfirm
+# 构建桌面应用
+pyinstaller ETFWorld.spec --clean --noconfirm           # macOS（产出 ETFWorld.app）
+pyinstaller ETFWorld-windows.spec --clean --noconfirm   # Windows（产出 dist/ETFWorld/）
 ```
 
 项目结构与约定见 [AGENTS.md](AGENTS.md)。构建过程不会读取或打包项目根目录中的 `etfworld.db` 和 `.env`。
