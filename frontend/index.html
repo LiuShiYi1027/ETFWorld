@@ -29,7 +29,6 @@
       <div class="gear-menu" :class="{show:gearOpen}">
         <button @click="openSettings()">⚙ 设置（数据源 / AI）</button>
         <button @click="openOnboard()">⇢ 首启向导</button>
-        <button onclick="location.href='/legacy'">↩ 旧版界面</button>
         <a class="gear-update" v-if="update" :href="update.url" target="_blank" rel="noopener">↑ 发现新版本 {{ update.version }} · 去下载</a>
         <div class="gear-ver">ETFWorld {{ appVersion || '' }} · 研究工具，不构成投资建议</div>
       </div>
@@ -570,7 +569,7 @@
 
 <div class="footline">
   <span>ETFWorld · 研究工具，不构成投资建议</span>
-  <span><a href="/legacy" style="color:inherit;">旧版界面</a> · 数据仅存本机</span>
+  <span>数据仅存本机</span>
 </div>
 
 <!-- 指数详情抽屉 -->

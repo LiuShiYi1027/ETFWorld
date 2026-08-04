@@ -35,8 +35,6 @@ app = FastAPI(title='ETFWorld', description='基于E大投资理念的网格策�
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / 'frontend'
 FRONTEND = FRONTEND_DIR / 'index.html'
-FRONTEND_SIMPLE = FRONTEND_DIR / 'simple.html'
-FRONTEND_LEGACY = FRONTEND_DIR / 'legacy.html'
 
 # 模块化前端的静态资源（js/css）；vendor 挂载见下方原有位置
 app.mount('/js', StaticFiles(directory=FRONTEND_DIR / 'js'), name='js')
@@ -66,18 +64,6 @@ def startup():
 @app.head('/')  # pywebview/监控探针的 HEAD 请求不应 405
 def index():
     return FileResponse(FRONTEND)
-
-
-@app.get('/simple')
-def simple():
-    """简单模式：面向新手的引导式精简界面"""
-    return FileResponse(FRONTEND_SIMPLE)
-
-
-@app.get('/legacy')
-def legacy():
-    """旧版单文件前端（迁移期保留）"""
-    return FileResponse(FRONTEND_LEGACY)
 
 
 @app.get('/api/health')

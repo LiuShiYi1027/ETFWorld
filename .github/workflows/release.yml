@@ -53,12 +53,14 @@ jobs:
             --team-id "$APPLE_TEAM_ID" --wait
           xcrun stapler staple dist/ETFWorld.app
 
-      - name: 打包产物
-        run: cd dist && zip -r ETFWorld-macos-arm64.zip ETFWorld.app
+      - name: 打包 DMG（macOS 自带 hdiutil）
+        run: |
+          hdiutil create -volname ETFWorld -srcfolder dist/ETFWorld.app \
+            -ov -format UDZO dist/ETFWorld-macos-arm64.dmg
       - name: 发布到 Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/ETFWorld-macos-arm64.zip
+          files: dist/ETFWorld-macos-arm64.dmg
           generate_release_notes: true
 
   build-windows:
@@ -73,13 +75,13 @@ jobs:
       - name: 注入版本号（来自 git tag）
         run: |
           echo "{\"version\": \"${GITHUB_REF_NAME}\"}" > frontend/version.json
-      - name: 构建（产出 dist/ETFWorld 目录，内含 ETFWorld.exe）
+      - name: 构建单文件 EXE（onefile，产出 dist/ETFWorld.exe）
         run: pyinstaller ETFWorld-windows.spec --clean --noconfirm
-      - name: 打包产物
+      - name: 重命名产物
         shell: pwsh
-        run: Compress-Archive -Path dist/ETFWorld -DestinationPath dist/ETFWorld-windows-x64.zip
+        run: Copy-Item dist/ETFWorld.exe dist/ETFWorld-windows-x64.exe
       - name: 发布到 Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/ETFWorld-windows-x64.zip
+          files: dist/ETFWorld-windows-x64.exe
           generate_release_notes: true

@@ -24,11 +24,13 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
+# onefile：产出单个便携 ETFWorld.exe（首次启动稍慢，会解压到临时目录）
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.datas,
     [],
-    exclude_binaries=True,
     name='ETFWorld',
     debug=False,
     bootloader_ignore_signals=False,
@@ -36,13 +38,4 @@ exe = EXE(
     upx=True,
     console=False,  # 窗口应用，不弹控制台
     icon=str(ROOT / 'assets' / 'ETFWorld.ico'),
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.datas,
-    strip=False,
-    upx=True,
-    name='ETFWorld',
 )
