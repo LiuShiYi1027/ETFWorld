@@ -679,6 +679,24 @@
   <button class="t-act" v-if="toastObj.action" @click="toastObj.action.fn();toastObj=null;">{{ toastObj.action.label }}</button>
 </div>
 
+<!-- 更新提醒（仿 QingWu：启动弹窗，可稍后/跳过此版本） -->
+<div id="update-modal" v-if="updatePrompt && update">
+  <div class="modal-card">
+    <div class="modal-head"><div class="t">发现新版本 {{ update.version }}</div><button class="dr-x" @click="dismissUpdate(false)" aria-label="关闭">✕</button></div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:var(--faint);">当前版本 {{ appVersion }} · 发布于 {{ update.date }}</div>
+      <div class="update-notes" v-if="update.notes">{{ update.notes }}</div>
+    </div>
+    <div class="modal-foot" style="justify-content:space-between;">
+      <button class="btn sm" style="color:var(--faint);border-color:transparent;" @click="dismissUpdate(true)">跳过此版本</button>
+      <div style="display:flex;gap:10px;">
+        <button class="btn" @click="dismissUpdate(false)">稍后</button>
+        <button class="btn primary" @click="dismissUpdate(false);window.open(update.url,'_blank')">去下载</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- 首启向导 -->
 <div id="onboard" :class="{show:obOpen}" v-if="obOpen">
   <div class="ob-wrap">

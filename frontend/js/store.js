@@ -46,7 +46,8 @@ export const store = reactive({
   obToken: '', obTestStat: '未测试', obTesting: false, obTokenOk: false,
   obBfRunning: false, obBfLog: '', obBfDone: false, obAgree: false,
   appVersion: '',          // /api/version，打包版为 tag，源码运行为 dev
-  update: null,            // {version, url} 发现新版本时非 null
+  update: null,            // {version, url, notes, date} 发现新版本时非 null
+  updatePrompt: false,     // 启动更新弹窗开关
 });
 
 /* ---------------- 通用 ---------------- */
@@ -152,13 +153,29 @@ export async function loadVersion() {
     if (remote) {
       for (let i = 0; i < 3; i++) {
         if ((remote[i] || 0) > (local[i] || 0)) {
-          store.update = { version: rel.tag_name, url: rel.html_url };
+          store.update = {
+            version: rel.tag_name,
+            url: rel.html_url,
+            notes: (rel.body || '').trim(),
+            date: (rel.published_at || '').slice(0, 10),
+          };
+          // 仿 QingWu：启动即弹窗提醒；「跳过此版本」持久化，「稍后」下次启动再提醒
+          if (localStorage.getItem('etfw_skip_version') !== rel.tag_name) {
+            store.updatePrompt = true;
+          }
           break;
         }
         if ((remote[i] || 0) < (local[i] || 0)) break;
       }
     }
   } catch { /* 离线或被墙都静默 */ }
+}
+
+export function dismissUpdate(skip) {
+  store.updatePrompt = false;
+  if (skip && store.update) {
+    localStorage.setItem('etfw_skip_version', store.update.version);
+  }
 }
 
 /* ---------------- 启动 ---------------- */

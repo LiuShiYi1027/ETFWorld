@@ -1,5 +1,5 @@
 // 应用入口：合并状态与页面动作，挂载 petite-vue
-import { store, boot, switchTab, toast, openPlan, loadReadiness } from './store.js';
+import { store, boot, switchTab, toast, openPlan, loadReadiness, dismissUpdate } from './store.js';
 import { homeActions } from './pages/home.js';
 import { todayActions } from './pages/today.js';
 import { picksActions } from './pages/picks.js';
@@ -12,7 +12,7 @@ import { onboardActions } from './pages/onboarding.js';
 
 const app = Object.assign(
   store,
-  { switchTab, toast, openPlan, loadReadiness },
+  { switchTab, toast, openPlan, loadReadiness, dismissUpdate },
   homeActions, todayActions, picksActions, plannerActions,
   reviewActions, plansActions, portfolioActions, settingsActions,
   onboardActions,
