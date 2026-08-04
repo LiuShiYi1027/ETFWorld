@@ -45,6 +45,8 @@ export const store = reactive({
   obOpen: false, obStep: 1,
   obToken: '', obTestStat: '未测试', obTesting: false, obTokenOk: false,
   obBfRunning: false, obBfLog: '', obBfDone: false, obAgree: false,
+  appVersion: '',          // /api/version，打包版为 tag，源码运行为 dev
+  update: null,            // {version, url} 发现新版本时非 null
 });
 
 /* ---------------- 通用 ---------------- */
@@ -129,9 +131,40 @@ export async function loadSettings() {
   store.settings = await API.get('/api/settings');
 }
 
+/* ---------------- 版本与检查更新 ---------------- */
+function _semver(v) {
+  const m = String(v || '').replace(/^v/, '').match(/\d+/g);
+  return m ? m.map(Number) : null;
+}
+
+export async function loadVersion() {
+  try {
+    const r = await API.get('/api/version');
+    store.appVersion = r.version || 'dev';
+  } catch { store.appVersion = 'dev'; }
+  // 被动检查更新：仅打包版本（dev 跳过）；只读 GitHub 公开 API，失败静默
+  const local = _semver(store.appVersion);
+  if (!local) return;
+  try {
+    const rel = await fetch('https://api.github.com/repos/LiuShiYi1027/ETFWorld/releases/latest')
+      .then(r => r.ok ? r.json() : null);
+    const remote = rel && _semver(rel.tag_name);
+    if (remote) {
+      for (let i = 0; i < 3; i++) {
+        if ((remote[i] || 0) > (local[i] || 0)) {
+          store.update = { version: rel.tag_name, url: rel.html_url };
+          break;
+        }
+        if ((remote[i] || 0) < (local[i] || 0)) break;
+      }
+    }
+  } catch { /* 离线或被墙都静默 */ }
+}
+
 /* ---------------- 启动 ---------------- */
 export function boot() {
   loadAiStatus();
+  loadVersion();
   loadReadiness();
   loadToday();
   loadPlans();

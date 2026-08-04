@@ -35,5 +35,8 @@ dist/
 # 数据接口缓存文件（可由接口重新生成，不入库）
 data/*.json
 
+# 打包时由 CI 注入的版本文件
+frontend/version.json
+
 # Generated icon conversion workspace
 *.iconset/

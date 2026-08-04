@@ -94,23 +94,14 @@ Windows: %APPDATA%\ETFWorld\
 建议使用 Python 3.10 或更高版本。
 
 ```bash
-git clone <仓库地址>
+git clone https://github.com/LiuShiYi1027/ETFWorld.git
 cd ETFWorld
-
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r backend/requirements.txt
-
-python desktop.py
+./start.sh        # 创建 venv、装依赖、启动 Web 服务
 ```
 
-如需单独运行 Web 开发服务：
+然后访问 <http://127.0.0.1:8000>。桌面壳模式：`python desktop.py`。
 
-```bash
-python -m uvicorn backend.api.main:app --reload
-```
-
-然后访问 <http://127.0.0.1:8000>。旧版单文件前端保留在 <http://127.0.0.1:8000/legacy>（迁移期临时保留）。
+旧版单文件前端（/legacy）与简单模式（/simple）为迁移期保留页面，将在后续版本移除。
 
 ## 配置数据源
 

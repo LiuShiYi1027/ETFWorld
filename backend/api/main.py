@@ -87,6 +87,19 @@ def health():
     return {'status': 'ok'}
 
 
+@app.get('/api/version')
+def version():
+    """应用版本：打包时由 CI 从 git tag 写入 frontend/version.json；源码运行为 dev"""
+    import json as _json
+    vf = FRONTEND_DIR / 'version.json'
+    try:
+        if vf.exists():
+            return {'version': _json.loads(vf.read_text(encoding='utf-8')).get('version', 'dev')}
+    except Exception:  # noqa: BLE001
+        pass
+    return {'version': 'dev'}
+
+
 # ---------- 本机设置 ----------
 
 class SettingsUpdate(BaseModel):
