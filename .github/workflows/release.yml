@@ -15,7 +15,8 @@ jobs:
       - name: 安装依赖
         run: pip install -r backend/requirements.txt
       - name: 注入版本号（来自 git tag）
-        run: echo "{\"version\": \"${GITHUB_REF_NAME}\"}" > frontend/version.json
+        run: |
+          echo "{\"version\": \"${GITHUB_REF_NAME}\"}" > frontend/version.json
       - name: 构建 .app
         run: pyinstaller ETFWorld.spec --clean --noconfirm
 
@@ -66,7 +67,8 @@ jobs:
       - name: 安装依赖
         run: pip install -r backend/requirements.txt
       - name: 注入版本号（来自 git tag）
-        run: echo "{\"version\": \"${GITHUB_REF_NAME}\"}" > frontend/version.json
+        run: |
+          echo "{\"version\": \"${GITHUB_REF_NAME}\"}" > frontend/version.json
       - name: 构建（产出 dist/ETFWorld 目录，内含 ETFWorld.exe）
         run: pyinstaller ETFWorld-windows.spec --clean --noconfirm
       - name: 打包产物
