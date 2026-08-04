@@ -1,0 +1,8 @@
+{
+  "detector": {
+    "ignoreRules": [
+      "flat-type-hierarchy",
+      "em-dash-overuse"
+    ]
+  }
+}

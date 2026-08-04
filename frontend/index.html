@@ -161,7 +161,7 @@
       <div class="card-b" style="padding:8px 0 10px;" v-if="recentTrades.length">
         <div class="row" v-for="t in recentTrades" :key="t.id">
           <span class="dir" :class="t.direction==='buy'?'buy':'sell'"><i></i></span>
-          <div style="flex:1;min-width:0;"><div class="nm">{{ t.symbol_name || t.symbol }} <span style="color:var(--faint);font-size:11.5px;">{{ t.grid_level ? 'G'+t.grid_level : '' }}</span></div>
+          <div style="flex:1;min-width:0;"><div class="nm">{{ t.symbol_name || t.symbol }} <span style="color:var(--faint);font-size:12px;">{{ t.grid_level ? 'G'+t.grid_level : '' }}</span></div>
             <div class="sub">{{ t.trade_date }} · {{ t.price }} × {{ t.shares.toLocaleString('zh-CN') }}</div></div>
           <div class="amt">{{ fmt(t.amount,0) }}</div>
         </div>

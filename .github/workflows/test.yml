@@ -1,0 +1,38 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: 安装依赖
+        run: pip install -r backend/requirements.txt pytest httpx
+      - name: 运行测试
+        run: python -m pytest tests/ -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: JS 语法检查
+        run: |
+          cd frontend
+          for f in js/api.js js/store.js js/app.js js/pages/*.js; do
+            node --check "$f" || exit 1
+          done
+      - name: 设计走查（impeccable 探测器）
+        run: npx -y impeccable detect frontend/index.html

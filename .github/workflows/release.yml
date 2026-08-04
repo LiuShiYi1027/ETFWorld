@@ -1,0 +1,25 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 安装依赖
+        run: pip install -r backend/requirements.txt
+      - name: 构建 .app
+        run: pyinstaller ETFWorld.spec --clean --noconfirm
+      - name: 打包产物
+        run: cd dist && zip -r ETFWorld-macos-arm64.zip ETFWorld.app
+      - name: 发布到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/ETFWorld-macos-arm64.zip
+          generate_release_notes: true
