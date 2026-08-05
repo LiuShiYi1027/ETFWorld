@@ -6,6 +6,7 @@ import pytest
 from backend.config import settings
 from backend.services.ai_service import (
     AINotConfigured, AIService, _build_plan_prompt, _build_prompt,
+    _build_optimize_prompt,
 )
 
 _CTX = {
@@ -105,6 +106,57 @@ class TestReviewFlow:
         monkeypatch.setattr(settings, 'AI_API_KEY', '')
         with pytest.raises(AINotConfigured):
             AIService().grid_review(_CTX)
+
+
+class TestOptimizeReview:
+    _CTX = {
+        'symbol': '510300', 'symbol_name': '沪深300ETF', 'n': 250,
+        'amount': 10000, 'inc': 0, 'ret': 0,
+        'cells': [
+            {'step': 5, 'count': 8, 'ret': 3.2, 'dd': 1.1, 'trades': 11,
+             'invested_pct': 35.0, 'low_activity': False, 'score': 2.7},
+            {'step': 12, 'count': 14, 'ret': 4.1, 'dd': 0.5, 'trades': 1,
+             'invested_pct': 2.1, 'low_activity': True, 'score': 3.9},
+        ],
+        'best': {'step': 12, 'count': 14, 'score': 3.9},
+        'index': {'name': '沪深300', 'valuation_percentile': 87.9,
+                  'verdict': '不建议（估值偏高）', 'volatility': 17.3},
+        'safety_ratio': 0.42,
+    }
+
+    def test_prompt_includes_matrix_and_context(self):
+        p = _build_optimize_prompt(self._CTX)
+        assert '沪深300ETF' in p and '250 个交易日' in p
+        assert '估值分位 87.9%' in p and '安全线当前为 42.0%' in p
+        assert '5%×8: 3.2/1.1/11/35.0' in p
+        assert '12%×14: 4.1/0.5/1/2.1（低活性）' in p
+        assert '低活性' in p and '更像低频抄底而非网格' in p
+
+    def test_normalize_and_cache(self, svc, monkeypatch):
+        calls = _fake_chat_json(svc, monkeypatch,
+                                {'step': 5, 'count': 8, 'oneLine': '选活跃网格',
+                                 'reasons': ['成交 11 次'], 'warning': '高位易破网'})
+        r1 = svc.optimize_review(self._CTX)
+        r2 = svc.optimize_review(self._CTX)
+        assert r1['step'] == 5.0 and r1['count'] == 8
+        assert r1['oneLine'] == '选活跃网格'
+        assert r1['warning'] == '高位易破网'
+        assert r2 is r1 and len(calls) == 1  # 同参数走缓存
+
+    def test_not_configured_raises(self, monkeypatch):
+        monkeypatch.setattr(settings, 'AI_API_KEY', '')
+        with pytest.raises(AINotConfigured):
+            AIService().optimize_review(self._CTX)
+
+
+def _fake_chat_json(svc, monkeypatch, payload):
+    calls = []
+
+    def fake(messages):
+        calls.append(messages)
+        return json.dumps(payload)
+    monkeypatch.setattr(svc, '_chat', fake)
+    return calls
 
 
 class TestChatRetry:

@@ -40,6 +40,7 @@ export const store = reactive({
   plannerPreview: null, plannerLoading: false,
   plannerBt: null, btLoading: false,
   plannerOpt: null, optLoading: false,
+  plannerOptAi: null, optAiLoading: false,
   flowForm: null, settingsForm: null,
   // 首启向导
   obOpen: false, obStep: 1,

@@ -96,10 +96,31 @@ export const plannerActions = {
     const err = validateForm();
     if (err) { toast(err, 'warn'); return; }
     store.optLoading = true;
+    store.plannerOpt = null; store.plannerOptAi = null;
     try {
       store.plannerOpt = await API.post('/api/grid/optimize', { ...formParams(), lookback_days: 250 });
     } catch (e) { toast('寻优失败 · ' + e.message, 'warn'); }
     finally { store.optLoading = false; }
+  },
+  optimizeRows() {
+    if (!store.plannerOpt) return [];
+    return [...store.plannerOpt.cells].sort((a, b) => b.score - a.score).slice(0, 10);
+  },
+  async runOptimizeAi() {
+    if (store.optAiLoading) return;
+    const err = validateForm();
+    if (err) { toast(err, 'warn'); return; }
+    store.optAiLoading = true;
+    store.plannerOptAi = null;
+    try {
+      store.plannerOptAi = await API.post('/api/ai/optimize-review', {
+        symbol: store.plannerForm.symbol, symbol_name: store.plannerForm.symbol_name,
+        amount_per_grid: parseFloat(store.plannerForm.amount_per_grid),
+        step_increase: parseFloat(store.plannerForm.step_increase || 0),
+        profit_retention: parseFloat(store.plannerForm.profit_retention || 0),
+      });
+    } catch (e) { toast('AI 解读失败 · ' + e.message, 'warn'); }
+    finally { store.optAiLoading = false; }
   },
   async savePlan() {
     const err = validateForm();

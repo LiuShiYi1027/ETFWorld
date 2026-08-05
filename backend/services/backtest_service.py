@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_STEPS = [3, 5, 8, 10, 12]
 DEFAULT_COUNTS = [6, 8, 10, 12, 14]
 
+# 活性门槛：窗口内完整套利次数低于此值视为"低活性"（更像抄底而非网格）
+LOW_ACTIVITY_TRADES = 3
+
 
 def simulate_grid(prices: List[float], step: float, count: int, amount: float,
                   inc: float = 0, ret: float = 0) -> Dict:
@@ -117,8 +120,16 @@ class BacktestService:
                 # 风险调整：收益减去回撤惩罚
                 score = round(b['grid_ret'] - 0.45 * b['max_dd'], 2)
                 cell = {'step': st, 'count': ct, 'ret': b['grid_ret'],
-                        'dd': b['max_dd'], 'trades': b['trades'], 'score': score}
+                        'dd': b['max_dd'], 'trades': b['trades'],
+                        'invested_pct': b['invested_pct'],
+                        'low_activity': b['trades'] < LOW_ACTIVITY_TRADES,
+                        'score': score}
                 cells.append(cell)
                 if best is None or score > best['score']:
                     best = cell
-        return {'cells': cells, 'best': best, 'steps': steps, 'counts': counts, 'n': len(prices)}
+        # best 若是低活性，同时在合格组合里给一个备选（保留信息，不做硬淘汰）
+        qualified = [c for c in cells if not c['low_activity']]
+        best_active = max(qualified, key=lambda c: c['score']) if qualified else None
+        return {'cells': cells, 'best': best, 'best_active': best_active,
+                'low_activity_trades': LOW_ACTIVITY_TRADES,
+                'steps': steps, 'counts': counts, 'n': len(prices)}

@@ -151,10 +151,53 @@ def _build_weekly_prompt(ctx: Dict) -> str:
     return "".join(parts)
 
 
+_OPTIMIZE_SCHEMA_HINT = (
+    '只返回严格JSON，无其它文字：'
+    '{"step":数字(格距%),'
+    '"count":数字(格数),'
+    '"oneLine":"推荐语40字内",'
+    '"reasons":["依据1","依据2","依据3"],'
+    '"warning":"风险提示50字内"}'
+)
+
+
+def _build_optimize_prompt(ctx: Dict) -> str:
+    """参数寻优解读 prompt：矩阵 + 市场上下文，要"网格真实性"而非纯分数"""
+    parts = [f"标的：{ctx.get('symbol_name') or ctx.get('symbol')}（ETF）。"
+             f"在近 {ctx.get('n')} 个交易日的真实行情上对 25 组网格参数做了回测。"]
+    idx = ctx.get('index') or {}
+    if idx.get('valuation_percentile') is not None:
+        parts.append(f"关联指数 {idx.get('name')}：估值分位 {idx['valuation_percentile']}%，"
+                     f"雷达结论「{idx.get('verdict')}」，"
+                     f"年化波动 {idx.get('volatility')}%。")
+    if ctx.get('safety_ratio') is not None:
+        parts.append(f"用户组合的满格资金/本金安全线当前为 {round(ctx['safety_ratio'] * 100, 1)}%"
+                     f"（70% 为警告线，新网格满格资金会推高该值）。")
+    parts.append(f"每格金额 {ctx.get('amount')} 元，逐格加码 {ctx.get('inc')}%，留利润 {ctx.get('ret')}%。")
+    parts.append("回测矩阵（格距×格数: 收益%/回撤%/套利次数/资金利用率%/低活性，"
+                 "按得分取前 12 项）：")
+    cells = sorted(ctx.get('cells') or [],
+                   key=lambda c: c.get('score', 0), reverse=True)[:12]
+    rows = []
+    for c in cells:
+        rows.append(f"{c['step']}%×{c['count']}: {c['ret']}/{c['dd']}/{c['trades']}"
+                    f"/{c.get('invested_pct', 0)}{'（低活性）' if c.get('low_activity') else ''}")
+    parts.append('；'.join(rows) + '。')
+    best = ctx.get('best') or {}
+    if best:
+        parts.append(f"按 score=收益−0.45×回撤 的最高分组合是 {best.get('step')}%×{best.get('count')}。")
+    parts.append("请在这些组合里选一个「网格真实性」最好的：既看风险调整得分，"
+                 "也看套利次数与资金利用率——成交过少（低活性）的组合更像低频抄底而非网格；"
+                 "同时结合估值分位（高位易破网宜保守、低位可适度深格）与组合安全线给出建议。"
+                 "只做研究解读，不给出买卖指令或收益承诺。")
+    parts.append(_OPTIMIZE_SCHEMA_HINT)
+    return "".join(parts)
+
+
 class AIService:
     """AI 研判客户端（OpenAI 兼容 chat/completions，服务商不限）"""
 
-    def __init__(self, timeout: int = 120):
+    def __init__(self, timeout: int = 150):
         # 推理型模型（如 DeepSeek V 系 Pro）思考耗时远超普通模型，30s 会被误杀
         self.timeout = timeout
         self._cache: Dict = {}
@@ -193,6 +236,38 @@ class AIService:
                     {"role": "user", "content": _build_weekly_prompt(ctx)},
                 ]))))
         return self._cache[key]
+
+    def optimize_review(self, ctx: Dict) -> Dict:
+        """参数寻优解读：读 25 格矩阵给出带上下文的建议。按(标的,窗口,参数)缓存"""
+        if not self.enabled:
+            raise AINotConfigured("AI_API_KEY 未配置，请在设置页或 backend/.env 填入后重启")
+        key = ('optimize', ctx.get('symbol'), ctx.get('n'), ctx.get('amount'),
+               ctx.get('inc'), ctx.get('ret'))
+        if key not in self._cache:
+            self._remember(key, self._normalize_optimize(
+                self._parse(self._chat([
+                    {"role": "system", "content": _SYSTEM},
+                    {"role": "user", "content": _build_optimize_prompt(ctx)},
+                ]))))
+        return self._cache[key]
+
+    @staticmethod
+    def _normalize_optimize(data: Dict) -> Dict:
+        def _num(v, default):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return default
+        step = _num(data.get("step"), 0)
+        count = int(_num(data.get("count"), 0))
+        return {
+            "step": step,
+            "count": count,
+            "oneLine": str(data.get("oneLine", ""))[:80],
+            "reasons": [str(x)[:60] for x in (data.get("reasons") or [])][:5],
+            "warning": str(data.get("warning", ""))[:100],
+            "source": "ai",
+        }
 
     @staticmethod
     def _normalize_weekly(data: Dict) -> Dict:

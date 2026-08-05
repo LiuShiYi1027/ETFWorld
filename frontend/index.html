@@ -257,11 +257,44 @@
         </div>
         <div class="note">先算最坏情况再开网：满格资金是你最多要掏的钱，满格浮亏是那一刻的账面。</div>
       </div>
-      <div class="card" v-if="plannerOpt && plannerOpt.best">
-        <div class="card-h"><div class="t">参数寻优</div><div class="d">近一年真实行情 · 风险调整收益</div></div>
-        <div class="card-b">
-          最优组合：<b>格距 {{ plannerOpt.best.step }}% × {{ plannerOpt.best.count }} 格</b>
-          （网格 {{ plannerOpt.best.ret }}% · 回撤 {{ plannerOpt.best.dd }}% · 套利 {{ plannerOpt.best.trades }} 次 · 评分 {{ plannerOpt.best.score }}）
+      <div class="card" v-if="plannerOpt">
+        <div class="card-h">
+          <div class="t">参数寻优</div>
+          <div class="d">近一年真实行情 · 按 score = 收益 − 0.45×回撤 排序 · 成交 &lt;{{ plannerOpt.low_activity_trades }} 次标「低活性」</div>
+        </div>
+        <div class="card-b" style="padding-left:10px;padding-right:10px;">
+          <table>
+            <thead><tr><th class="l">格距</th><th class="l">格数</th><th>收益</th><th>回撤</th><th>套利</th><th>利用率</th><th>得分</th><th class="l">标记</th></tr></thead>
+            <tbody>
+              <tr v-for="(c,i) in optimizeRows()" :key="c.step+'-'+c.count"
+                  :style="i===0 ? 'background:var(--accent-soft);' : ''">
+                <td class="l">{{ c.step }}%</td><td class="l">{{ c.count }} 格</td>
+                <td :style="{color:c.ret>=0?'var(--accent)':'var(--red-ink)'}">{{ c.ret }}%</td>
+                <td>{{ c.dd }}%</td><td>{{ c.trades }} 次</td><td>{{ c.invested_pct }}%</td>
+                <td style="font-weight:700;">{{ c.score }}</td>
+                <td class="l">
+                  <span class="chip go" v-if="i===0">score 最优</span>
+                  <span class="chip maybe" v-if="c.low_activity">低活性</span>
+                  <span class="chip blue" v-if="plannerOpt.best_active && c===plannerOpt.best_active">活性最优</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="note" style="padding:10px 10px 0;" v-if="plannerOpt.best && plannerOpt.best.low_activity">
+            score 最优 <b>{{ plannerOpt.best.step }}% × {{ plannerOpt.best.count }} 格</b>全年仅成交 {{ plannerOpt.best.trades }} 次——更像低频抄底而非网格。
+            <template v-if="plannerOpt.best_active">活性最优为 <b>{{ plannerOpt.best_active.step }}% × {{ plannerOpt.best_active.count }} 格</b>（成交 {{ plannerOpt.best_active.trades }} 次，得分 {{ plannerOpt.best_active.score }}）。</template>
+          </div>
+          <div class="btnrow">
+            <button class="btn" style="color:var(--accent);border-color:#86EFAC;" @click="runOptimizeAi()" v-if="ai.enabled">✦ AI 解读寻优</button>
+          </div>
+          <div class="ai-loading" v-if="optAiLoading">AI 正在解读…</div>
+          <div class="ai-block show" v-if="plannerOptAi">
+            <div class="ai-t">✦ AI 寻优建议<span class="chip go" style="margin-left:auto;">{{ plannerOptAi.step }}% × {{ plannerOptAi.count }} 格</span></div>
+            <div class="ai-sec"><div class="ai-p" style="font-weight:600;">{{ plannerOptAi.oneLine }}</div></div>
+            <div class="ai-sec" v-if="plannerOptAi.reasons && plannerOptAi.reasons.length"><div class="ai-k">推荐理由</div><div class="ai-p mute" v-for="r in plannerOptAi.reasons" :key="r">· {{ r }}</div></div>
+            <div class="ai-sec" v-if="plannerOptAi.warning"><div class="ai-k">风险提示</div><div class="ai-p mute">{{ plannerOptAi.warning }}</div></div>
+            <div class="ai-disc">AI 定位是研究助手：解读矩阵、提示风险，不构成投资建议。数字均来自本地回测。</div>
+          </div>
         </div>
       </div>
     </div>

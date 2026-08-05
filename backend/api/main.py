@@ -26,6 +26,7 @@ from backend.services.backtest_service import BacktestService
 from backend.services.portfolio_service import PortfolioService
 from backend.services.today_service import TodayService
 from backend.services.review_service import ReviewService
+from backend.services.today_service import match_index_name
 from backend.config import settings
 
 logging.basicConfig(level=logging.INFO,
@@ -479,6 +480,54 @@ def ai_weekly_review():
     }
     try:
         return ai_service.weekly_review(ctx)
+    except AINotConfigured as e:
+        raise HTTPException(503, str(e))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f'AI 调用失败: {e}')
+
+
+class AIOptimizeReviewParams(BaseModel):
+    symbol: str
+    symbol_name: Optional[str] = None
+    amount_per_grid: float = Field(default=10000, gt=0)
+    step_increase: float = 0
+    profit_retention: float = 0
+    lookback_days: int = Field(default=250, ge=20, le=1000)
+
+
+@app.post('/api/ai/optimize-review')
+def ai_optimize_review(p: AIOptimizeReviewParams):
+    """AI 解读参数寻优：读 25 格矩阵给出带上下文的建议。未配置key → 503。"""
+    prices = etf_service.daily_closes(p.symbol, p.lookback_days)
+    if len(prices) < 20:
+        raise HTTPException(400, '历史数据不足 · 请确认标的代码正确且已配置数据源')
+    matrix = backtest_service.optimize(p.dict(), prices)
+
+    # 关联监控指数上下文（估值分位/结论/波动），关联不上则跳过
+    idx_ctx = {}
+    try:
+        rows = readiness_service.assess_all()
+        hit = match_index_name(p.symbol_name or '', [r['name'] for r in rows])
+        if hit:
+            r = next(x for x in rows if x['name'] == hit)
+            idx_ctx = {'name': hit, 'valuation_percentile': r.get('valuation_percentile'),
+                       'verdict': r.get('verdict'), 'volatility': r.get('volatility')}
+    except Exception:  # noqa: BLE001
+        pass
+    safety_ratio = None
+    try:
+        safety_ratio = portfolio_service.overview().get('safety_ratio')
+    except Exception:  # noqa: BLE001
+        pass
+
+    ctx = {
+        'symbol': p.symbol, 'symbol_name': p.symbol_name, 'n': matrix['n'],
+        'amount': p.amount_per_grid, 'inc': p.step_increase, 'ret': p.profit_retention,
+        'cells': matrix['cells'], 'best': matrix['best'],
+        'index': idx_ctx, 'safety_ratio': safety_ratio,
+    }
+    try:
+        return ai_service.optimize_review(ctx)
     except AINotConfigured as e:
         raise HTTPException(503, str(e))
     except Exception as e:  # noqa: BLE001
