@@ -132,6 +132,18 @@ class FundFlowTable(Base):
     created_at = Column(DateTime, default=datetime.now)
 
 
+class WatchlistTable(Base):
+    """监控池：雷达/估值管线跟踪的指数清单（首启从 SUPPORTED_INDICES 播种）"""
+    __tablename__ = 'watchlist'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ts_code = Column(String(20), unique=True, nullable=False, comment='指数代码')
+    name = Column(String(100), nullable=False, comment='指数名称')
+    category = Column(String(50), comment='分类(宽基/行业一级/行业二级等)')
+    source = Column(String(20), default='index', comment='数据源(index 宽基/sw 申万)')
+    created_at = Column(DateTime, default=datetime.now)
+
+
 class UpdateLogTable(Base):
     """数据更新日志表"""
     __tablename__ = 'valuation_update_log'

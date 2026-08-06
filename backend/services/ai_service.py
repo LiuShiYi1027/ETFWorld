@@ -194,6 +194,33 @@ def _build_optimize_prompt(ctx: Dict) -> str:
     return "".join(parts)
 
 
+_DISCOVERY_SCHEMA_HINT = (
+    '只返回严格JSON，无其它文字：'
+    '{"items":[{"name":"行业名",'
+    '"verdict":"适合或谨慎或不适合",'
+    '"reason":"理由40字内",'
+    '"risk":"风险30字内"}]}'
+)
+
+
+def _build_discovery_prompt(ctx: Dict) -> str:
+    """寻品研判 prompt：数据筛过的候选，AI 判"不死属性"与网格适配"""
+    parts = ["以下行业指数通过了数据初筛（估值分位<50%、年化波动≥12%、有活跃 ETF）。"
+             "逐只研判它适不适合做网格交易："]
+    for c in ctx.get('items') or []:
+        parts.append(f"{c['name']}（{c['level']}）：分位 {c['valuation_percentile']}%，"
+                     f"年化波动 {c['volatility']}%，评分 {c['score']}，"
+                     f"关联 ETF {c['etf']['name']}（日成交 {c['etf']['amount_yi']} 亿）。")
+    parts.append("网格交易的前提是「不死品种」：需求长期存在、不会被技术或政策颠覆。"
+                 "请逐只判断：①该行业是否永续（如金融/消费/医药不死，"
+                 "落后产能或纯主题需谨慎）；②波动是否来自周期性均值回归而非单边消亡。"
+                 "verdict 含义：适合=低估且不死；谨慎=低估但行业逻辑有争议；"
+                 "不适合=行业可能消亡。只说数据与行业逻辑里有的东西，"
+                 "不编造，不给出买卖指令。")
+    parts.append(_DISCOVERY_SCHEMA_HINT)
+    return "".join(parts)
+
+
 class AIService:
     """AI 研判客户端（OpenAI 兼容 chat/completions，服务商不限）"""
 
@@ -250,6 +277,34 @@ class AIService:
                     {"role": "user", "content": _build_optimize_prompt(ctx)},
                 ]))))
         return self._cache[key]
+
+    def discovery_review(self, ctx: Dict) -> Dict:
+        """寻品研判：对数据筛过的候选逐只判"不死属性"。按扫描批次缓存"""
+        if not self.enabled:
+            raise AINotConfigured("AI_API_KEY 未配置，请在设置页或 backend/.env 填入后重启")
+        key = ('discovery', ctx.get('batch'))
+        if key not in self._cache:
+            self._remember(key, self._normalize_discovery(
+                self._parse(self._chat([
+                    {"role": "system", "content": _SYSTEM},
+                    {"role": "user", "content": _build_discovery_prompt(ctx)},
+                ]))))
+        return self._cache[key]
+
+    @staticmethod
+    def _normalize_discovery(data: Dict) -> Dict:
+        items = []
+        for it in (data.get("items") or [])[:12]:
+            verdict = it.get("verdict")
+            if verdict not in ("适合", "谨慎", "不适合"):
+                verdict = "谨慎"
+            items.append({
+                "name": str(it.get("name", "")).split('（')[0].strip()[:20],
+                "verdict": verdict,
+                "reason": str(it.get("reason", ""))[:60],
+                "risk": str(it.get("risk", ""))[:50],
+            })
+        return {"items": items, "source": "ai"}
 
     @staticmethod
     def _normalize_optimize(data: Dict) -> Dict:

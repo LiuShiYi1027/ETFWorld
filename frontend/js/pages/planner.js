@@ -52,27 +52,63 @@ async function runBacktest() {
   store.btLoading = true;
   store.plannerBt = null;
   try {
-    store.plannerBt = await API.post('/api/grid/backtest', { ...p, lookback_days: 250 });
+    store.plannerBt = await API.post('/api/grid/backtest', { ...p, lookback_days: store.plannerLookback, anchor: store.plannerAnchor });
     window.PetiteVue.nextTick(() => renderBtChart(store.plannerBt));
   } catch { store.plannerBt = { error: true }; }
   finally { store.btLoading = false; }
 }
 
-/* 回测净值曲线（echarts 按需初始化，失败静默） */
+/* 回测净值曲线 + 买卖点标注（echarts 按需初始化，失败静默）
+   左轴：收益率曲线（网格 vs 持有）；右轴：标的价格 + 买卖点三角标记 */
 function renderBtChart(bt) {
   const el = document.getElementById('bt-equity');
   if (!el || !bt || !bt.g || !window.echarts) return;
   const chart = window.echarts.getInstanceByDom(el) || window.echarts.init(el);
+  const dates = bt.dates && bt.dates.length === bt.n
+    ? bt.dates.map(d => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`)
+    : bt.g.map((_, i) => i + 1);
+  const axisDates = bt.dates && bt.dates.length === bt.n
+    ? bt.dates.map(d => `${d.slice(2, 4)}-${d.slice(4, 6)}`)
+    : dates;
+  const buys = [], sells = [];
+  (bt.events || []).forEach(e => {
+    (e.dir === 'buy' ? buys : sells).push({ value: [axisDates[e.i], e.price], level: e.level });
+  });
   chart.setOption({
     animation: false,
-    grid: { left: 46, right: 18, top: 16, bottom: 26 },
-    tooltip: { trigger: 'axis' },
-    xAxis: { type: 'category', data: bt.g.map((_, i) => i + 1), axisLabel: { fontSize: 10 } },
-    yAxis: { type: 'value', axisLabel: { formatter: '{value}%', fontSize: 10 } },
+    grid: { left: 46, right: 52, top: 18, bottom: 26 },
+    tooltip: {
+      trigger: 'axis',
+      formatter: ps => {
+        const i = ps[0].dataIndex;
+        let s = `${dates[i]} · 价 ${bt.prices[i]}`;
+        for (const p of ps) {
+          if (p.seriesName === '买入' || p.seriesName === '卖出') continue;
+          s += `<br/>${p.marker}${p.seriesName} <b>${p.value >= 0 ? '+' : ''}${p.value}%</b>`;
+        }
+        const dayBuys = buys.filter(b => b.value[0] === axisDates[i]);
+        const daySells = sells.filter(s2 => s2.value[0] === axisDates[i]);
+        dayBuys.forEach(b => { s += `<br/><b style="color:#15803D">买入 G${b.level} @ ${b.value[1]}</b>`; });
+        daySells.forEach(s2 => { s += `<br/><b style="color:#B91C1C">卖出 G${s2.level} @ ${s2.value[1]}</b>`; });
+        return s;
+      },
+    },
+    xAxis: { type: 'category', data: axisDates,
+             axisLabel: { fontSize: 10, interval: Math.max(9, Math.floor(bt.n / 10)) } },
+    yAxis: [
+      { type: 'value', axisLabel: { formatter: '{value}%', fontSize: 10 }, splitLine: { lineStyle: { color: '#F1EFEA' } } },
+      { type: 'value', scale: true, axisLabel: { fontSize: 10, color: '#78716C' }, splitLine: { show: false } },
+    ],
     series: [
-      { name: '一直持有', type: 'line', data: bt.h, symbol: 'none', lineStyle: { color: '#A8A29E', width: 1.5 } },
+      { name: '一直持有', type: 'line', data: bt.h, symbol: 'none', lineStyle: { color: '#A8A29E', width: 1.5 }, z: 2 },
       { name: '网格策略', type: 'line', data: bt.g, symbol: 'none', lineStyle: { color: '#15803D', width: 2 },
-        areaStyle: { color: 'rgba(21,128,61,.08)' } },
+        areaStyle: { color: 'rgba(21,128,61,.08)' }, z: 3 },
+      { name: '价格', type: 'line', data: bt.prices, symbol: 'none', yAxisIndex: 1,
+        lineStyle: { color: '#93C5FD', width: 1, type: 'dashed' }, z: 1 },
+      { name: '买入', type: 'scatter', data: buys, yAxisIndex: 1, symbol: 'triangle', symbolSize: 9,
+        itemStyle: { color: '#15803D', borderColor: '#fff', borderWidth: 1 }, z: 4 },
+      { name: '卖出', type: 'scatter', data: sells, yAxisIndex: 1, symbol: 'triangle', symbolRotate: 180,
+        symbolSize: 9, itemStyle: { color: '#B91C1C', borderColor: '#fff', borderWidth: 1 }, z: 4 },
     ],
   }, true);
   chart.resize();
@@ -88,6 +124,14 @@ export const plannerActions = {
   pickEtf,
   preview,
   runBacktest,
+  setLookback(d) {
+    store.plannerLookback = d;
+    if (store.plannerPreview) runBacktest();  // 已预览过就自动重跑
+  },
+  setAnchor(a) {
+    store.plannerAnchor = a;
+    if (store.plannerPreview) runBacktest();
+  },
   plannerSymbolLabel() {
     const f = store.plannerForm;
     return f.symbol ? `${f.symbol_name || ''} ${f.symbol}` : '未选择';
@@ -98,7 +142,7 @@ export const plannerActions = {
     store.optLoading = true;
     store.plannerOpt = null; store.plannerOptAi = null;
     try {
-      store.plannerOpt = await API.post('/api/grid/optimize', { ...formParams(), lookback_days: 250 });
+      store.plannerOpt = await API.post('/api/grid/optimize', { ...formParams(), lookback_days: store.plannerLookback });
     } catch (e) { toast('寻优失败 · ' + e.message, 'warn'); }
     finally { store.optLoading = false; }
   },
@@ -118,6 +162,7 @@ export const plannerActions = {
         amount_per_grid: parseFloat(store.plannerForm.amount_per_grid),
         step_increase: parseFloat(store.plannerForm.step_increase || 0),
         profit_retention: parseFloat(store.plannerForm.profit_retention || 0),
+        lookback_days: store.plannerLookback,
       });
     } catch (e) { toast('AI 解读失败 · ' + e.message, 'warn'); }
     finally { store.optAiLoading = false; }

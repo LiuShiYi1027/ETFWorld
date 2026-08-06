@@ -27,19 +27,21 @@ LOW_ACTIVITY_TRADES = 3
 
 
 def simulate_grid(prices: List[float], step: float, count: int, amount: float,
-                  inc: float = 0, ret: float = 0) -> Dict:
-    """在给定价格序列上跑一遍网格，返回净值曲线与统计。"""
+                  inc: float = 0, ret: float = 0, base: float = None) -> Dict:
+    """在给定价格序列上跑一遍网格，返回净值曲线与统计。
+    base 缺省取序列首日价（窗口起点锚定）；显式传入则作为基准价（穿越点锚定）。"""
     if not prices:
         return {'g': [], 'h': [], 'grid_ret': 0, 'hold_ret': 0,
                 'trades': 0, 'max_dd': 0, 'budget': 0, 'n': 0,
-                'retained_shares': 0, 'broken_idx': None, 'invested_pct': 0}
-    base = prices[0]
+                'retained_shares': 0, 'broken_idx': None, 'invested_pct': 0,
+                'events': [], 'prices': []}
+    base = base or prices[0]
     levels = generate_levels(base, step, count, amount, inc, ret)
     budget = sum(l['amount'] for l in levels) or 1.0
     book = [{'buy': l['buy_price'], 'sell': l['sell_price'],
              'shares': l['shares'], 'sell_shares': l['sell_shares'],
              'retained_shares': l['retained_shares'],
-             'amount': l['amount'], 'held': False}
+             'amount': l['amount'], 'held': False, 'level': l['level']}
             for l in levels]
     lowest_buy = levels[-1]['buy_price']
 
@@ -50,6 +52,7 @@ def simulate_grid(prices: List[float], step: float, count: int, amount: float,
     max_dd = 0.0
     broken_idx = None
     invested = 0.0  # 已投入资金占比的逐日累计（算资金利用率）
+    events: List[Dict] = []  # 成交事件：{i, dir, level, price}，供回测图标注买卖点
     g: List[float] = []
     h: List[float] = []
 
@@ -57,12 +60,14 @@ def simulate_grid(prices: List[float], step: float, count: int, amount: float,
         for L in book:
             if not L['held'] and pr <= L['buy']:
                 L['held'] = True
+                events.append({'i': idx, 'dir': 'buy', 'level': L['level'], 'price': L['buy']})
             elif L['held'] and pr >= L['sell']:
                 L['held'] = False
                 # 卖出份额兑现并收回该格全部本金，留存份额转为底仓
                 realized += L['sell_shares'] * L['sell'] - L['amount']
                 retained += L['retained_shares']
                 trades += 1
+                events.append({'i': idx, 'dir': 'sell', 'level': L['level'], 'price': L['sell']})
         if broken_idx is None and pr < lowest_buy:
             broken_idx = idx
         mv = sum(L['shares'] * pr for L in book if L['held'])
@@ -86,22 +91,42 @@ def simulate_grid(prices: List[float], step: float, count: int, amount: float,
         'retained_shares': retained,
         'broken_idx': broken_idx,
         'invested_pct': round(invested / len(prices) * 100, 1),
+        'events': events,
+        'prices': [round(p, 4) for p in prices],
     }
 
 
 class BacktestService:
     """回测与参数寻优"""
 
-    def backtest(self, params: Dict, prices: List[float]) -> Dict:
+    def backtest(self, params: Dict, prices: List[float],
+                 dates: List[str] = None) -> Dict:
+        anchor = params.get('anchor', 'window')
+        cross_idx = None
+        if anchor == 'cross' and len(prices) >= 2:
+            # 穿越点锚定：基准=窗口末日价格，找最近一次从上往下穿越该价位的日子
+            today = prices[-1]
+            for i in range(len(prices) - 1, 0, -1):
+                if prices[i] <= today < prices[i - 1]:
+                    cross_idx = i
+                    break
+            if cross_idx is not None:
+                prices = prices[cross_idx:]
+                if dates:
+                    dates = dates[cross_idx:]
         r = simulate_grid(
             prices,
             float(params['grid_step']), int(params['grid_count']),
             float(params['amount_per_grid']),
             float(params.get('step_increase', 0)),
             float(params.get('profit_retention', 0)),
+            base=(prices[0] if anchor == 'cross' else None),
         )
         r['base'] = prices[0] if prices else None
         r['last'] = prices[-1] if prices else None
+        r['anchor'] = anchor
+        r['cross_idx'] = cross_idx  # None 表示窗口内从未穿越（回退为窗口起点）
+        r['dates'] = dates or []    # 与 prices 等长的交易日（YYYYMMDD），供前端日期轴
         return r
 
     def optimize(self, params: Dict, prices: List[float],

@@ -5,6 +5,7 @@ ETFWorld FastAPI 应用
 """
 import logging
 import requests
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -27,6 +28,8 @@ from backend.services.portfolio_service import PortfolioService
 from backend.services.today_service import TodayService
 from backend.services.review_service import ReviewService
 from backend.services.today_service import match_index_name
+from backend.services import discovery_service
+from backend.services.watchlist_service import WatchlistService
 from backend.config import settings
 
 logging.basicConfig(level=logging.INFO,
@@ -53,6 +56,7 @@ today_service = TodayService(grid_service, trade_service, etf_service,
                              readiness_service, portfolio_service)
 review_service = ReviewService(grid_service, trade_service, portfolio_service,
                                etf_service)
+watchlist_service = WatchlistService()
 
 
 @app.on_event('startup')
@@ -313,16 +317,19 @@ class BacktestParams(BaseModel):
     amount_per_grid: float = Field(gt=0)
     step_increase: float = Field(default=0, ge=0, le=100)
     profit_retention: float = Field(default=0, ge=0, le=100)
-    lookback_days: int = Field(default=250, ge=20, le=1000)
+    lookback_days: int = Field(default=750, ge=20, le=1500)
+    anchor: str = Field(default='window', pattern='^(window|cross)$')
 
 
 @app.post('/api/grid/backtest')
 def grid_backtest(p: BacktestParams):
-    """在真实 ETF 历史价格上回测网格 vs 一直持有（默认近250个交易日）"""
-    prices = etf_service.daily_closes(p.symbol, p.lookback_days)
-    if len(prices) < 20:
-        raise HTTPException(400, '历史数据不足 · 请确认标的代码正确且已配置 TUSHARE_TOKEN')
-    return backtest_service.backtest(p.dict(), prices)
+    """在真实 ETF 历史价格上回测网格 vs 一直持有（默认近3年，含日期轴）"""
+    bars = etf_service.daily_bars(p.symbol, p.lookback_days)
+    if len(bars) < 20:
+        raise HTTPException(400, '历史数据不足 · 请确认标的代码正确且已配置数据源')
+    dates = [d for d, _ in bars]
+    prices = [c for _, c in bars]
+    return backtest_service.backtest(p.dict(), prices, dates)
 
 
 @app.post('/api/grid/optimize')
@@ -492,7 +499,7 @@ class AIOptimizeReviewParams(BaseModel):
     amount_per_grid: float = Field(default=10000, gt=0)
     step_increase: float = 0
     profit_retention: float = 0
-    lookback_days: int = Field(default=250, ge=20, le=1000)
+    lookback_days: int = Field(default=750, ge=20, le=1500)
 
 
 @app.post('/api/ai/optimize-review')
@@ -534,6 +541,21 @@ def ai_optimize_review(p: AIOptimizeReviewParams):
         raise HTTPException(502, f'AI 调用失败: {e}')
 
 
+@app.post('/api/ai/discovery-review')
+def ai_discovery_review(top: int = 10):
+    """AI 研判最近一轮扫描的头部候选（不死属性判断）。未配置key → 503。"""
+    result = discovery_service.scan_state().get('result')
+    if not result or not result.get('items'):
+        raise HTTPException(400, '请先运行一次品种扫描')
+    ctx = {'batch': result.get('finished_at'), 'items': result['items'][:top]}
+    try:
+        return ai_service.discovery_review(ctx)
+    except AINotConfigured as e:
+        raise HTTPException(503, str(e))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f'AI 调用失败: {e}')
+
+
 @app.get('/api/summary')
 def summary():
     return trade_service.get_summary()
@@ -557,6 +579,68 @@ def review(lookback_days: int = 250):
     except Exception as e:  # noqa: BLE001
         logger.warning('复盘页行情获取失败，降级为成本口径: %s', e)
     return review_service.review(lookback_days=lookback_days, prices=prices)
+
+
+# ---------- 监控池管理 ----------
+
+class WatchlistAddParams(BaseModel):
+    ts_code: str
+    name: str
+    category: Optional[str] = None
+    source: str = 'index'  # index(宽基/中证) / sw(申万)
+    backfill_years: int = Field(default=5, ge=1, le=10)
+
+
+@app.get('/api/watchlist')
+def watchlist_get():
+    """监控池清单（雷达/估值管线读取对象）"""
+    return watchlist_service.list_indices()
+
+
+@app.post('/api/watchlist')
+def watchlist_add(p: WatchlistAddParams):
+    """加入监控池，并在后台回填该指数历史估值（默认 5 年）"""
+    try:
+        item = watchlist_service.add(p.ts_code, p.name, p.category, p.source)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    def _backfill():
+        try:
+            ValuationService().backfill_index(
+                {'ts_code': p.ts_code, 'name': p.name, 'source': p.source},
+                years=p.backfill_years)
+        except Exception as e:  # noqa: BLE001
+            logger.warning('监控池新增回填失败 %s: %s', p.ts_code, e)
+
+    threading.Thread(target=_backfill, daemon=True).start()
+    return {'ok': True, 'item': item, 'message': '已加入监控池，历史数据回填中'}
+
+
+@app.delete('/api/watchlist/{ts_code}')
+def watchlist_remove(ts_code: str):
+    """移出监控池（历史估值数据保留，雷达不再展示）"""
+    if not watchlist_service.remove(ts_code):
+        raise HTTPException(404, '该指数不在监控池中')
+    return {'ok': True}
+
+
+# ---------- 品种发现（智能寻品） ----------
+
+@app.post('/api/discovery/scan')
+def discovery_scan():
+    """启动全池扫描（后台线程）：申万 L1+L2 行业指数，低估+波动+流动性三筛"""
+    if discovery_service.scan_state()['running']:
+        return {'ok': True, 'message': '扫描已在进行中'}
+    threading.Thread(target=discovery_service.run_scan,
+                     args=(sw_service, etf_service), daemon=True).start()
+    return {'ok': True, 'message': '扫描已启动'}
+
+
+@app.get('/api/discovery/scan')
+def discovery_scan_state():
+    """扫描进度与最近结果"""
+    return discovery_service.scan_state()
 
 
 # ---------- 组合层（底仓/网格/现金三账户 + 资金流水） ----------

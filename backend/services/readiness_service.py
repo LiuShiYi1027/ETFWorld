@@ -17,8 +17,9 @@ from typing import Dict, List, Optional
 
 from sqlalchemy import func
 
-from backend.config.settings import SUPPORTED_INDICES
+from backend.config.settings import SUPPORTED_INDICES  # 仅作监控池默认播种来源
 from backend.models.database import ValuationTable, ValuationPercentileTable
+from backend.services.watchlist_service import WatchlistService
 from backend.utils.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -26,8 +27,15 @@ logger = logging.getLogger(__name__)
 # 估值分位硬门槛：高于此值直接否决
 VALUATION_VETO = 50.0
 
-_NAME = {i['ts_code']: i['name'] for i in SUPPORTED_INDICES}
-_CATEGORY = {i['ts_code']: i['category'] for i in SUPPORTED_INDICES}
+_watchlist = WatchlistService()
+
+
+def _NAME() -> Dict[str, str]:
+    return _watchlist.name_map()
+
+
+def _CATEGORY() -> Dict:
+    return _watchlist.category_map()
 
 
 def _annualized_volatility(prices: List[float]) -> Optional[float]:
@@ -160,8 +168,8 @@ class ReadinessService:
 
         return {
             'ts_code': ts_code,
-            'name': _NAME.get(ts_code, ts_code),
-            'category': _CATEGORY.get(ts_code),
+            'name': _NAME().get(ts_code, ts_code),
+            'category': _CATEGORY().get(ts_code),
             'trade_date': latest_date.isoformat(),
             'close': float(cur.close_price) if cur and cur.close_price is not None else None,
             'pe_ttm': float(cur.pe_ttm) if cur and cur.pe_ttm is not None else None,
@@ -185,9 +193,9 @@ class ReadinessService:
         }
 
     def assess_all(self) -> List[Dict]:
-        """评估所有监控指数，按就绪度评分从高到低排序"""
+        """评估监控池内所有指数，按就绪度评分从高到低排序"""
         result = []
-        for idx in SUPPORTED_INDICES:
+        for idx in _watchlist.list_indices():
             r = self.assess(idx['ts_code'])
             if r:
                 result.append(r)

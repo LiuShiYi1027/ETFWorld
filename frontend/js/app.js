@@ -9,13 +9,14 @@ import { portfolioActions } from './pages/portfolio.js';
 import { reviewActions } from './pages/review.js';
 import { settingsActions } from './pages/settings.js';
 import { onboardActions } from './pages/onboarding.js';
+import { picksDiscoveryActions } from './pages/discovery.js';
 
 const app = Object.assign(
   store,
   { switchTab, toast, openPlan, loadReadiness, dismissUpdate },
   homeActions, todayActions, picksActions, plannerActions,
   reviewActions, plansActions, portfolioActions, settingsActions,
-  onboardActions,
+  onboardActions, picksDiscoveryActions,
   {
     // 模板小工具
     fmt(v, d = 3) {

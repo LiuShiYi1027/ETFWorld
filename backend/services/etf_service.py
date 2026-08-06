@@ -13,14 +13,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from backend.config.settings import BASE_DIR, SUPPORTED_INDICES
+from backend.config.settings import BASE_DIR
 from backend.services.tushare_init import get_pro
 
 logger = logging.getLogger(__name__)
 
 CACHE_FILE = BASE_DIR / 'data' / 'etf_basic.json'
-
-_NAME = {i['ts_code']: i['name'] for i in SUPPORTED_INDICES}
 
 # 行业名 → 额外同义关键词（提升召回，ETF命名常与申万行业名不一致）
 ALIASES = {
@@ -154,7 +152,8 @@ class ETFService:
 
     def find_for_index(self, ts_code: str) -> Dict:
         """为某个监控指数查找可交易 ETF"""
-        name = _NAME.get(ts_code, ts_code)
+        from backend.services.watchlist_service import WatchlistService
+        name = WatchlistService().name_map().get(ts_code, ts_code)
         keyword = _clean_industry_name(name)
         return {
             'index_code': ts_code,

@@ -13,12 +13,20 @@ from backend.models.database import (
 )
 from backend.utils.db import get_session
 from backend.services.tushare_client import TushareClient
+from backend.services.watchlist_service import WatchlistService
 
 logger = logging.getLogger(__name__)
+
+_watchlist = WatchlistService()
 
 
 def _parse_date(s: str) -> date:
     return datetime.strptime(s, '%Y%m%d').date()
+
+
+def _pool() -> List[Dict]:
+    """监控池清单（入库可增删；SUPPORTED_INDICES 仅为默认播种来源）"""
+    return _watchlist.list_indices()
 
 
 class ValuationService:
@@ -30,7 +38,7 @@ class ValuationService:
     def init_index_info(self):
         """初始化指数基础信息"""
         with get_session() as session:
-            for idx in SUPPORTED_INDICES:
+            for idx in _pool():
                 existing = session.query(IndexInfoTable).filter_by(ts_code=idx['ts_code']).first()
                 if not existing:
                     session.add(IndexInfoTable(
@@ -123,7 +131,7 @@ class ValuationService:
         if not trade_date:
             # 交易日历只说明当天开市，不代表日终估值已经发布。
             # 从最近候选日向前探测，选第一天真正有数据的日期。
-            probe_index = SUPPORTED_INDICES[0]
+            probe_index = _pool()[0]
             for candidate in self.client.get_recent_trade_dates(limit=5):
                 records = self._fetch(probe_index, trade_date=candidate)
                 if records:
@@ -134,7 +142,7 @@ class ValuationService:
 
         success, failed = 0, 0
         with get_session() as session:
-            for position, idx in enumerate(SUPPORTED_INDICES):
+            for position, idx in enumerate(_pool()):
                 records = prefetched if position == 0 and prefetched is not None else self._fetch(idx, trade_date=trade_date)
                 if records:
                     success += self._save_rows(session, records)
@@ -143,7 +151,7 @@ class ValuationService:
             session.add(UpdateLogTable(
                 trade_date=_parse_date(trade_date),
                 status='success' if failed == 0 else ('partial' if success else 'failed'),
-                indices_count=len(SUPPORTED_INDICES),
+                indices_count=len(_pool()),
                 success_count=success,
                 failed_count=failed,
             ))
@@ -160,7 +168,7 @@ class ValuationService:
 
         total = 0
         # 每个指数独立 session，避免同批 autoflush 导致去重误判与计数失真
-        for idx in SUPPORTED_INDICES:
+        for idx in _pool():
             records = self._fetch(idx, start_date=start_date, end_date=end_date)
             with get_session() as session:
                 saved = self._save_rows(session, records)
@@ -168,9 +176,21 @@ class ValuationService:
             logger.info("回填 %s(%s): %d 条", idx['ts_code'], idx['name'], saved)
         return {'status': 'success', 'saved': total}
 
+    def backfill_index(self, idx: Dict, years: int = 5) -> Dict:
+        """回填单个指数的历史估值（监控池新增时自动调用）"""
+        if not self.client.is_connected():
+            return {'status': 'failed', 'error': 'Tushare Token未配置'}
+        start = (datetime.now() - timedelta(days=int(years * 365.25))).strftime('%Y%m%d')
+        records = self._fetch(idx, start_date=start)
+        with get_session() as session:
+            saved = self._save_rows(session, records)
+        self.calc_percentiles(ts_codes=[idx['ts_code']])
+        logger.info("单指数回填 %s(%s): %d 条", idx['ts_code'], idx['name'], saved)
+        return {'status': 'success', 'saved': saved}
+
     def calc_percentiles(self, trade_date: date = None, ts_codes: List[str] = None) -> int:
         """计算指定日期各指数PE/PB历史分位点"""
-        ts_codes = ts_codes or [i['ts_code'] for i in SUPPORTED_INDICES]
+        ts_codes = ts_codes or [i["ts_code"] for i in _pool()]
         count = 0
         with get_session() as session:
             for ts_code in ts_codes:
@@ -237,7 +257,7 @@ class ValuationService:
         """各指数最新估值概览（含分位点与估值区间）"""
         result = []
         with get_session() as session:
-            for idx in SUPPORTED_INDICES:
+            for idx in _pool():
                 ts_code = idx['ts_code']
                 latest = session.query(ValuationTable).filter_by(ts_code=ts_code) \
                     .order_by(ValuationTable.trade_date.desc()).first()

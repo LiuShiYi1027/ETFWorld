@@ -41,6 +41,13 @@ export const store = reactive({
   plannerBt: null, btLoading: false,
   plannerOpt: null, optLoading: false,
   plannerOptAi: null, optAiLoading: false,
+  plannerLookback: 750,   // 回测窗口（交易日）：250≈1年 750≈3年 1250≈5年
+  plannerAnchor: 'window', // 回测锚定口径：window=窗口起点 / cross=当前价位穿越点
+  // 智能寻品
+  discoveryState: null, discoveryResult: null,
+  discoveryAi: null, discoveryAiLoading: false,
+  // 监控池管理
+  watchlist: [], wlManage: false, wlQuery: '', wlResults: [], wlBusy: {},
   flowForm: null, settingsForm: null,
   // 首启向导
   obOpen: false, obStep: 1,
@@ -68,7 +75,7 @@ export function switchTab(name) {
     if (!store.portfolioData) loadPortfolio();
     if (!store.reviewData) loadReview();
   }
-  if (name === 'picks') loadReadiness();
+  if (name === 'picks') { loadReadiness(); loadWatchlist(); }
   if (name === 'plans') loadPlans();
   if (name === 'portfolio') loadPortfolio();
   if (name === 'review') loadReview();
@@ -89,6 +96,11 @@ export async function loadReadiness(force, _retried) {
       return loadReadiness(force, true);
     }
   }
+}
+
+export async function loadWatchlist() {
+  try { store.watchlist = await API.get('/api/watchlist'); }
+  catch { store.watchlist = []; }
 }
 
 export async function loadToday() {

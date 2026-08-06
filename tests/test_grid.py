@@ -71,6 +71,16 @@ class TestSimulateGrid:
         assert r['hold_ret'] == 0.0
         assert r['grid_ret'] > r['hold_ret']
 
+    def test_events_track_buys_and_sells(self):
+        """买卖点事件：卖出事件数=套利次数，买≥卖，事件含档位与价格"""
+        r = simulate_grid(DOWN_UP, step=5, count=3, amount=10000)
+        buys = [e for e in r['events'] if e['dir'] == 'buy']
+        sells = [e for e in r['events'] if e['dir'] == 'sell']
+        assert len(sells) == r['trades']
+        assert len(buys) >= len(sells)
+        assert all(e['level'] and e['price'] > 0 for e in r['events'])
+        assert r['prices'][0] == 1.0 and len(r['prices']) == r['n']
+
     def test_broken_grid_detected(self):
         """跌破最后一格买入价(0.9025) → broken_idx 记录首次跌破日"""
         prices = [1.0, 0.95, 0.9, 0.85, 0.8]

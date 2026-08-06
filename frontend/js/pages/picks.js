@@ -1,6 +1,6 @@
 // 机会：雷达评分表 + 指数详情抽屉（估值带/关键数据/AI 研判）
 import * as API from '../api.js';
-import { store, toast, switchTab } from '../store.js';
+import { store, toast, switchTab, loadReadiness, loadWatchlist } from '../store.js';
 
 const PERIODS = [['3y', '3年'], ['5y', '5年'], ['10y', '10年'], ['all', '全历史']];
 
@@ -11,6 +11,26 @@ function drawerRow() {
   return store.readiness.find(r => r.ts_code === store.drawer) || null;
 }
 function closeDrawer() { store.drawer = null; }
+
+// 加入监控池（模块级，供多个 action 复用）
+async function wlAdd(item) {
+  if (store.wlBusy[item.ts_code]) return;
+  store.wlBusy = { ...store.wlBusy, [item.ts_code]: true };
+  try {
+    const category = item.category ||
+      (item.level === 'L1' ? '行业一级' : item.level === 'L2' ? '行业二级' : item.level === 'L3' ? '行业三级' : item.level);
+    await API.post('/api/watchlist', {
+      ts_code: item.ts_code, name: item.name,
+      category, source: item.source || 'sw',
+    });
+    toast(`${item.name} 已加入监控池 · 历史数据回填中`);
+    store.wlResults = store.wlResults.filter(x => x.ts_code !== item.ts_code);
+    await loadWatchlist();
+  } catch (e) { toast(e.message, 'warn'); }
+  finally {
+    const b = { ...store.wlBusy }; delete b[item.ts_code]; store.wlBusy = b;
+  }
+}
 
 export const picksActions = {
   radarRows() { return store.readiness; },
@@ -68,5 +88,29 @@ export const picksActions = {
     }
     closeDrawer();
     switchTab('planner');
+  },
+
+  // ---- 监控池管理 ----
+  wlInPool(tsCode) { return store.watchlist.some(w => w.ts_code === tsCode); },
+  toggleWlManage() {
+    store.wlManage = !store.wlManage;
+    if (store.wlManage) loadWatchlist();
+  },
+  async wlSearch() {
+    const q = (store.wlQuery || '').trim();
+    if (!q) { store.wlResults = []; return; }
+    try { store.wlResults = await API.get(`/api/sw/search?q=${encodeURIComponent(q)}`); }
+    catch { store.wlResults = []; }
+  },
+  wlAdd,
+  async wlAddFromDiscovery(d) {
+    await wlAdd({ ts_code: d.ts_code, name: d.name, level: d.level, source: 'sw' });
+    loadReadiness(true);
+  },
+  async wlRemove(tsCode, name) {
+    await API.del(`/api/watchlist/${encodeURIComponent(tsCode)}`);
+    toast(`已移出监控池：${name || tsCode}（历史数据保留）`);
+    await loadWatchlist();
+    loadReadiness(true);
   },
 };
