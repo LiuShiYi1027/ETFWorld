@@ -59,6 +59,16 @@ export const todayActions = {
     store.dismissedTodos[`${t.plan_id}-${t.direction}-${t.level}`] = true;
     toast('已标记 · 记得去券商下单');
   },
+  // 待办一键成交：预填表单，确认即记录（自动匹配档位）
+  completeTodo(t) {
+    store.tradeForm = {
+      plan_id: t.plan_id, symbol: t.symbol, symbol_name: t.symbol_name,
+      trade_date: new Date().toISOString().slice(0, 10),
+      direction: t.direction, price: t.price, shares: t.shares,
+      fee: '', note: `待办成交 · G${t.level}`,
+    };
+    store.modal = 'trade';
+  },
   alertAction(al) {
     if (al.act === 'picks') { switchTab('picks'); return; }
     if (al.act === 'rebase') { rebaseWithGate(al.plan); return; }

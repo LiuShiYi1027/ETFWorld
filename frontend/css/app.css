@@ -23,7 +23,7 @@ input,select{font-family:inherit;}
 
 /* ---------- 顶栏 ---------- */
 header{position:sticky;top:0;z-index:30;background:rgba(250,250,248,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);}
-.hd{max-width:1180px;margin:0 auto;height:60px;display:flex;align-items:center;gap:26px;padding:0 24px;}
+.hd{max-width:min(1440px,96vw);margin:0 auto;height:60px;display:flex;align-items:center;gap:26px;padding:0 2px;}
 .brand{display:flex;align-items:center;gap:9px;font-weight:700;font-size:15px;}
 .brand .sq{width:12px;height:12px;border-radius:4px;background:var(--accent);}
 nav{display:flex;gap:2px;}
@@ -44,8 +44,8 @@ nav button.active{color:var(--text);font-weight:600;background:var(--line2);}
 .gear-update{display:block;padding:10px 14px;font-size:12.5px;font-weight:600;color:var(--accent);text-decoration:none;border-top:1px solid var(--line2);}
 .gear-update:hover{background:var(--accent-soft);}
 
-main{max-width:1180px;margin:0 auto;padding:30px 24px 80px;}
-section.page{display:none;}
+main{max-width:min(1440px,96vw);margin:0 auto;padding:30px 0 80px;}
+section.page{display:none;padding:0 2px;}
 section.page.on{display:block;animation:fade .25s ease;}
 @keyframes fade{from{opacity:0;}to{opacity:1;}}
 @media(prefers-reduced-motion:reduce){section.page.on{animation:none;}}
@@ -130,8 +130,8 @@ tr.clk{cursor:pointer;}
 .alert .ab b{font-variant-numeric:tabular-nums;}
 .alert .aa{margin-top:11px;display:flex;gap:8px;flex-wrap:wrap;}
 .alert .btn{background:rgba(255,255,255,.75);}
-.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:14px;margin-bottom:20px;}
-@media(max-width:980px){.kpis{grid-template-columns:repeat(3,1fr);}}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:20px;}
+@media(max-width:980px){.kpis{grid-template-columns:repeat(2,1fr);}}
 .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;}
 .kpi .k{font-size:11.5px;color:var(--faint);}
 .kpi .v{font-size:22px;font-weight:700;margin-top:5px;letter-spacing:-.02em;font-variant-numeric:tabular-nums;}
@@ -388,4 +388,4 @@ tr.clk{cursor:pointer;}
 .vchip-none{font-size:12px;color:var(--faint);}
 
 /* 页脚 */
-.footline{max-width:1180px;margin:0 auto;padding:0 24px 30px;font-size:11.5px;color:var(--faint);display:flex;justify-content:space-between;}
+.footline{max-width:min(1440px,96vw);margin:0 auto;padding:0 2px 30px;font-size:11.5px;color:var(--faint);display:flex;justify-content:space-between;}

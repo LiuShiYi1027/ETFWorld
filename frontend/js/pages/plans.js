@@ -121,6 +121,10 @@ export const plansActions = {
       });
       store.modal = null;
       toast(t.grid_level ? `已记录并匹配到 <b>G${t.grid_level}</b>` : '已记录（未匹配到档位）');
+      // 来自待办的一键成交：顺手把该待办标记完成
+      if (f.note && String(f.note).startsWith('待办成交')) {
+        store.dismissedTodos[`${f.plan_id}-${f.direction}-${t.grid_level || ''}`] = true;
+      }
       await loadPlanDetail(f.plan_id); loadToday();
     } catch (e) { toast(e.message, 'warn'); }
   },

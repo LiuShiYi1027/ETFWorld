@@ -1,5 +1,7 @@
 """参数寻优（规则层）测试：活性标注与备选组合"""
-from backend.services.backtest_service import BacktestService, LOW_ACTIVITY_TRADES
+from backend.services.backtest_service import (
+    BacktestService, LOW_ACTIVITY_TRADES, simulate_rebase_grid,
+)
 
 # 震荡回到原点的序列：买得勤、卖得也勤
 OSC = [1.0, 0.95, 0.9025, 0.95, 1.0] * 4
@@ -72,3 +74,28 @@ class TestCrossAnchor:
             self.UP_THEN_BACK, dates)
         assert r2['cross_idx'] == 9
         assert r2['dates'] == ['20260810']  # 穿越口径：同步切片
+
+
+class TestRebaseSimulate:
+    RALLY = [1.0, 1.06, 1.12, 1.18, 1.25, 1.31, 1.38,  # 一路上涨，反复涨穿顶格
+             1.3, 1.24, 1.31, 1.38, 1.45]
+
+    def test_rebase_triggers_and_counts(self):
+        """涨穿顶格（基准/(1-step)）即重开：重开次数与事件齐全"""
+        r = simulate_rebase_grid(self.RALLY, step=5, count=3, amount=10000)
+        assert r['rebases'] >= 3                # 多次涨穿
+        assert r['trades'] >= 1                 # 有兑现
+        assert len(r['g']) == len(self.RALLY)   # 曲线等长
+        buys = [e for e in r['events'] if e['dir'] == 'buy']
+        sells = [e for e in r['events'] if e['dir'] == 'sell']
+        assert len(sells) == r['trades'] and len(buys) >= len(sells)
+
+    def test_rebase_vs_static_shape(self):
+        """重开口径的字段与静态一致，便于前端并排"""
+        r = simulate_rebase_grid(self.RALLY, step=5, count=3, amount=10000)
+        for k in ('grid_ret', 'max_dd', 'invested_pct', 'trades'):
+            assert k in r
+
+    def test_empty_prices(self):
+        r = simulate_rebase_grid([], step=5, count=3, amount=10000)
+        assert r['trades'] == 0 and r['rebases'] == 0

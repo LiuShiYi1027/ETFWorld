@@ -52,7 +52,7 @@ async function runBacktest() {
   store.btLoading = true;
   store.plannerBt = null;
   try {
-    store.plannerBt = await API.post('/api/grid/backtest', { ...p, lookback_days: store.plannerLookback, anchor: store.plannerAnchor });
+    store.plannerBt = await API.post('/api/grid/backtest', { ...p, lookback_days: store.plannerLookback, anchor: store.plannerAnchor, compare_rebase: store.compareRebase });
     window.PetiteVue.nextTick(() => renderBtChart(store.plannerBt));
   } catch { store.plannerBt = { error: true }; }
   finally { store.btLoading = false; }
@@ -101,15 +101,17 @@ function renderBtChart(bt) {
     ],
     series: [
       { name: '一直持有', type: 'line', data: bt.h, symbol: 'none', lineStyle: { color: '#A8A29E', width: 1.5 }, z: 2 },
-      { name: '网格策略', type: 'line', data: bt.g, symbol: 'none', lineStyle: { color: '#15803D', width: 2 },
-        areaStyle: { color: 'rgba(21,128,61,.08)' }, z: 3 },
+      bt.rebase ? { name: '网格·自动重开', type: 'line', data: bt.rebase.g, symbol: 'none',
+        lineStyle: { color: '#2563EB', width: 1.5, type: 'dashed' }, z: 2 } : null,
       { name: '价格', type: 'line', data: bt.prices, symbol: 'none', yAxisIndex: 1,
         lineStyle: { color: '#93C5FD', width: 1, type: 'dashed' }, z: 1 },
+      { name: '网格策略', type: 'line', data: bt.g, symbol: 'none', lineStyle: { color: '#15803D', width: 2 },
+        areaStyle: { color: 'rgba(21,128,61,.08)' }, z: 3 },
       { name: '买入', type: 'scatter', data: buys, yAxisIndex: 1, symbol: 'triangle', symbolSize: 9,
         itemStyle: { color: '#15803D', borderColor: '#fff', borderWidth: 1 }, z: 4 },
       { name: '卖出', type: 'scatter', data: sells, yAxisIndex: 1, symbol: 'triangle', symbolRotate: 180,
         symbolSize: 9, itemStyle: { color: '#B91C1C', borderColor: '#fff', borderWidth: 1 }, z: 4 },
-    ],
+    ].filter(Boolean),
   }, true);
   chart.resize();
 }
@@ -131,6 +133,34 @@ export const plannerActions = {
   setAnchor(a) {
     store.plannerAnchor = a;
     if (store.plannerPreview) runBacktest();
+  },
+  toggleCompareRebase() {
+    store.compareRebase = !store.compareRebase;
+    if (store.plannerPreview) runBacktest();
+  },
+  // 回合明细：把卖出事件与同一格最近一笔买入配对
+  btRounds() {
+    const bt = store.plannerBt;
+    if (!bt || !bt.events) return [];
+    const lastBuy = {};
+    const rounds = [];
+    const dates = bt.dates || [];
+    const fd = i => {
+      const d = dates[i];
+      return d ? `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}` : `第${i + 1}日`;
+    };
+    for (const e of bt.events) {
+      if (e.dir === 'buy') { lastBuy[e.level] = e; continue; }
+      const b = lastBuy[e.level];
+      if (!b) continue;
+      rounds.push({
+        level: e.level, buyDate: fd(b.i), sellDate: fd(e.i),
+        buy: b.price, sell: e.price,
+        pct: ((e.price / b.price - 1) * 100).toFixed(1),
+      });
+      delete lastBuy[e.level];
+    }
+    return rounds.slice(-8).reverse();  // 最近 8 回合，新→旧
   },
   plannerSymbolLabel() {
     const f = store.plannerForm;

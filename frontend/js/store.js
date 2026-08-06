@@ -43,11 +43,15 @@ export const store = reactive({
   plannerOptAi: null, optAiLoading: false,
   plannerLookback: 750,   // 回测窗口（交易日）：250≈1年 750≈3年 1250≈5年
   plannerAnchor: 'window', // 回测锚定口径：window=窗口起点 / cross=当前价位穿越点
+  compareRebase: true,    // 回测对比口径：自动上移重开
   // 智能寻品
   discoveryState: null, discoveryResult: null,
   discoveryAi: null, discoveryAiLoading: false,
   // 监控池管理
   watchlist: [], wlManage: false, wlQuery: '', wlResults: [], wlBusy: {},
+  // 数据状态与通知
+  dataStatus: null,
+  notifyEnabled: true,
   flowForm: null, settingsForm: null,
   // 首启向导
   obOpen: false, obStep: 1,
@@ -111,6 +115,21 @@ export async function loadToday() {
   try {
     store.recentTrades = (await API.get('/api/trades')).slice(0, 4);
   } catch { store.recentTrades = []; }
+  try { store.dataStatus = await API.get('/api/data-status'); } catch { /* 忽略 */ }
+  maybeNotifyTodos();
+}
+
+/* 今日有待办时发一次系统通知（每天最多一次，可在设置里关） */
+function maybeNotifyTodos() {
+  const n = store.todayData ? store.todayData.todos.length : 0;
+  if (!n || !store.notifyEnabled) return;
+  const day = new Date().toISOString().slice(0, 10);
+  if (localStorage.getItem('etfw_notified') === day) return;
+  localStorage.setItem('etfw_notified', day);
+  API.post('/api/notify', {
+    title: 'ETFWorld 网格提醒',
+    body: `今日有 ${n} 条网格待办临近触发，记得挂单。`,
+  }).catch(() => {});
 }
 
 export async function loadPlans() {
@@ -216,6 +235,7 @@ export function boot() {
     store.clock = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   };
   tick(); setInterval(tick, 30000);
+  store.notifyEnabled = localStorage.getItem('etfw_notify') !== '0';
   // 深链接：#plans/3、#picks/000300.SH、#onboarding
   const h = location.hash.slice(1);
   if (h === 'onboarding') { store.obOpen = true; store.obStep = 1; return; }

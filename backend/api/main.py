@@ -34,6 +34,7 @@ from backend.config import settings
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title='ETFWorld', description='基于E大投资理念的网格策略辅助工具')
 
@@ -58,17 +59,83 @@ review_service = ReviewService(grid_service, trade_service, portfolio_service,
                                etf_service)
 watchlist_service = WatchlistService()
 
+# 数据更新状态（启动自动更新 + 手动更新共用）
+_data_state = {'updating': False, 'last_result': None}
+
+
+def _auto_update_valuation():
+    """启动时若数据落后则后台增量更新（未配置数据源或测试环境跳过）"""
+    import os
+    if os.environ.get('ETFWORLD_SKIP_AUTOUPDATE'):
+        return
+    if not settings.TUSHARE_TOKEN:
+        return
+    try:
+        from backend.services.tushare_client import TushareClient
+        from backend.models.database import ValuationTable
+        from sqlalchemy import func as _func
+        with get_session() as session:
+            latest = session.query(_func.max(ValuationTable.trade_date)).scalar()
+        newest = TushareClient().get_latest_trade_date()
+        if newest and (latest is None or latest.strftime('%Y%m%d') < newest):
+            _data_state['updating'] = True
+            logger.info('检测到估值数据落后（库内 %s → 最新 %s），后台自动更新',
+                        latest, newest)
+            _data_state['last_result'] = ValuationService().update_latest()
+            logger.info('自动更新完成: %s', _data_state['last_result'])
+    except Exception as e:  # noqa: BLE001 — 自动更新失败不影响启动
+        logger.warning('启动自动更新失败: %s', e)
+    finally:
+        _data_state['updating'] = False
+
 
 @app.on_event('startup')
 def startup():
     init_db()
     ValuationService().init_index_info()
+    threading.Thread(target=_auto_update_valuation, daemon=True).start()
 
 
 @app.get('/')
 @app.head('/')  # pywebview/监控探针的 HEAD 请求不应 405
 def index():
     return FileResponse(FRONTEND)
+
+
+@app.get('/api/data-status')
+def data_status():
+    """估值数据状态：库内最新交易日 + 是否正在后台更新"""
+    from sqlalchemy import func as _func
+    with get_session() as session:
+        latest = session.query(_func.max(ValuationTable.trade_date)).scalar()
+    return {'latest_date': latest.isoformat() if latest else None,
+            'updating': _data_state['updating'],
+            'last_result': _data_state['last_result']}
+
+
+@app.post('/api/notify')
+def notify(p: dict):
+    """系统通知（桌面提醒）：macOS 用 osascript，Windows 用 PowerShell 气泡"""
+    import subprocess
+    import sys as _sys
+    title = str(p.get('title', 'ETFWorld'))[:80].replace('"', "'")
+    body = str(p.get('body', ''))[:200].replace('"', "'")
+    try:
+        if _sys.platform == 'darwin':
+            subprocess.Popen(['osascript', '-e',
+                              f'display notification "{body}" with title "{title}"'],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif _sys.platform.startswith('win'):
+            ps = ("Add-Type -AssemblyName System.Windows.Forms;"
+                  "$n=New-Object System.Windows.Forms.NotifyIcon;"
+                  f"$n.Icon='Info';$n.Visible=$true;"
+                  f"$n.ShowBalloonTip(5000,'{title}','{body}','Info')")
+            subprocess.Popen(['powershell', '-NoProfile', '-Command', ps],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return {'ok': True}
+    except Exception as e:  # noqa: BLE001 — 通知失败不打断主流程
+        logger.warning('系统通知发送失败: %s', e)
+        return {'ok': False, 'error': str(e)}
 
 
 @app.get('/api/health')
@@ -198,10 +265,15 @@ def valuation_history(ts_code: str, limit: int = 500):
 @app.post('/api/valuation/update')
 def valuation_update():
     """拉取最新估值数据（需配置TUSHARE_TOKEN）"""
-    result = ValuationService().update_latest()
-    if result.get('status') == 'failed':
-        raise HTTPException(400, result.get('error'))
-    return result
+    _data_state['updating'] = True
+    try:
+        result = ValuationService().update_latest()
+        _data_state['last_result'] = result
+        if result.get('status') == 'failed':
+            raise HTTPException(400, result.get('error'))
+        return result
+    finally:
+        _data_state['updating'] = False
 
 
 @app.post('/api/valuation/backfill')

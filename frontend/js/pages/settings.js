@@ -1,6 +1,6 @@
 // 设置弹层：Tushare 数据源 + AI 服务（任意 OpenAI 兼容端点）
 import * as API from '../api.js';
-import { store, toast } from '../store.js';
+import { store, toast, loadReadiness } from '../store.js';
 
 async function persistSettings() {
   const f = store.settingsForm;
@@ -47,5 +47,24 @@ export const settingsActions = {
       toast(r.message || '连接正常');
     } catch (e) { toast(e.message, 'warn'); }
     finally { btn.disabled = false; btn.textContent = old; }
+  },
+
+  async updateData(btn) {
+    btn.disabled = true;
+    const old = btn.textContent;
+    btn.textContent = '更新中…';
+    try {
+      const r = await API.post('/api/valuation/update');
+      toast(`数据已更新 · ${r.trade_date || ''} 入库 ${r.saved ?? ''} 条`);
+      store.dataStatus = await API.get('/api/data-status');
+      loadReadiness(true);
+    } catch (e) { toast('更新失败 · ' + e.message, 'warn'); }
+    finally { btn.disabled = false; btn.textContent = old; }
+  },
+
+  toggleNotify(on) {
+    store.notifyEnabled = !!on;
+    localStorage.setItem('etfw_notify', on ? '1' : '0');
+    toast(on ? '系统通知已开启（每日最多一次）' : '系统通知已关闭');
   },
 };
