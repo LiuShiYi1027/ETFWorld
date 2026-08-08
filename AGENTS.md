@@ -8,3 +8,6 @@
   否则会提示 "Token 不对"；调用 `pro_bar` 必须显式传 `api=pro`。
 - AI 研判配置使用 `AI_API_URL` / `AI_API_KEY` / `AI_MODEL`（旧 `DEEPSEEK_*` 仅作兼容读取）。
 - 密钥只写入 `backend/.env`（已被 Git 忽略），通过 `settings.save_runtime_settings()` 持久化，绝不写进源码或提交。
+- 数据库 schema 变更不能只改 `backend/models/database.py`：`create_all` 不会给老表加列。
+  必须同时在 `backend/utils/migrate.py` 的 `MIGRATIONS` 追加递增版本号的迁移函数
+  （`init_db()` 启动时自动执行），并在 `tests/test_migrate.py` 补断言。

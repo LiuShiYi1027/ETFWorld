@@ -3,6 +3,7 @@ name: release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:  # 手动触发用于验证构建/签名链路（不上传 Release）
 
 # 发布 Release 需要写权限（新仓库默认 GITHUB_TOKEN 只读）
 permissions:
@@ -26,7 +27,8 @@ jobs:
 
       # ---- 可选：签名与公证（在仓库 Variables 里设 MACOS_SIGNING=true 并配置
       #      Secrets: APPLE_CERT_P12(base64 的开发者证书) / APPLE_CERT_PASSWORD /
-      #      APPLE_ID / APPLE_APP_PASSWORD(应用专用密码) / APPLE_TEAM_ID）----
+      #      APPLE_ID / APPLE_APP_PASSWORD(应用专用密码) / APPLE_TEAM_ID，
+      #      步骤见 docs/签名公证配置.md）----
       - name: 导入签名证书
         if: vars.MACOS_SIGNING == 'true'
         env:
@@ -39,25 +41,35 @@ jobs:
           security unlock-keychain -p ci ci.keychain
           security import /tmp/cert.p12 -k ci.keychain -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k ci ci.keychain
-      - name: 签名与公证
+          security find-identity -v
+      - name: 签名 .app（hardened runtime + entitlements）
+        if: vars.MACOS_SIGNING == 'true'
+        run: |
+          codesign --deep --force --options runtime \
+            --entitlements assets/entitlements.plist \
+            --sign "Developer ID Application" dist/ETFWorld.app
+          codesign --verify --deep --strict --verbose=2 dist/ETFWorld.app
+
+      - name: 打包 DMG（macOS 自带 hdiutil）
+        run: |
+          hdiutil create -volname ETFWorld -srcfolder dist/ETFWorld.app \
+            -ov -format UDZO dist/ETFWorld-macos-arm64.dmg
+      - name: 签名并公证 DMG（公证票 staple 到 DMG，下载即过 Gatekeeper）
         if: vars.MACOS_SIGNING == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          codesign --deep --force --options runtime --sign "Developer ID Application" dist/ETFWorld.app
-          (cd dist && ditto -c -k --keepParent ETFWorld.app ETFWorld-notarize.zip)
-          xcrun notarytool submit dist/ETFWorld-notarize.zip \
+          codesign --force --sign "Developer ID Application" dist/ETFWorld-macos-arm64.dmg
+          xcrun notarytool submit dist/ETFWorld-macos-arm64.dmg \
             --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" --wait
-          xcrun stapler staple dist/ETFWorld.app
+          xcrun stapler staple dist/ETFWorld-macos-arm64.dmg
+          xcrun stapler validate dist/ETFWorld-macos-arm64.dmg
 
-      - name: 打包 DMG（macOS 自带 hdiutil）
-        run: |
-          hdiutil create -volname ETFWorld -srcfolder dist/ETFWorld.app \
-            -ov -format UDZO dist/ETFWorld-macos-arm64.dmg
       - name: 发布到 Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: dist/ETFWorld-macos-arm64.dmg
@@ -81,6 +93,7 @@ jobs:
         shell: pwsh
         run: Copy-Item dist/ETFWorld.exe dist/ETFWorld-windows-x64.exe
       - name: 发布到 Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: dist/ETFWorld-windows-x64.exe

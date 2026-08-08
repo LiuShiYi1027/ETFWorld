@@ -23,8 +23,10 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False,
 
 
 def init_db():
-    """创建所有表"""
+    """创建所有表，并跑增量结构迁移（老库补列、新库直接盖章版本）"""
     Base.metadata.create_all(engine)
+    from backend.utils.migrate import run_migrations
+    run_migrations(engine)
     logger.info("数据库表创建完成: %s", DATABASE_URL)
 
 

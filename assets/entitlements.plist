@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- PyInstaller 应用 hardened runtime 公证的常规两件套：
+     allow-unsigned-executable-memory —— Python 解释器/部分 C 扩展需要；
+     disable-library-validation —— 防止个别第三方 dylib 校验失败导致启动崩。 -->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

@@ -35,7 +35,7 @@
 
 | 平台 | 下载 | 说明 |
 |------|------|------|
-| macOS（Apple Silicon） | [ETFWorld-macos-arm64.dmg](https://github.com/LiuShiYi1027/ETFWorld/releases/latest) | 未签名构建首次需在 Finder 右键"打开" |
+| macOS（Apple Silicon） | [ETFWorld-macos-arm64.dmg](https://github.com/LiuShiYi1027/ETFWorld/releases/latest) | 已签名公证的版本直接打开；未签名构建首次需在 Finder 右键"打开" |
 | Windows | [ETFWorld-windows-x64.exe](https://github.com/LiuShiYi1027/ETFWorld/releases/latest) | SmartScreen 提示选"仍要运行" |
 | 源码 | `git clone` 后 `./start.sh` | Python 3.10+，访问 127.0.0.1:8000 |
 
