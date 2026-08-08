@@ -121,3 +121,47 @@ class TestAlerts:
         _add_plan(grid)
         r = svc.today(prices={'512880': 1.10})
         assert r['alerts']['valuation'] == []
+
+
+class TestExitAlerts:
+    def test_warn_tier_at_75(self):
+        rows = [{'name': '证券Ⅱ', 'valuation_percentile': 75.0}]
+        grid, _, svc = _make_today(rows)
+        _add_plan(grid)
+        r = svc.today(prices={'512880': 1.10})
+        exits = r['alerts']['exit']
+        assert len(exits) == 1
+        assert exits[0]['tier'] == 'warn'
+        assert exits[0]['index_name'] == '证券Ⅱ'
+        assert '只卖不买' in exits[0]['verdict']
+
+    def test_exit_tier_at_85(self):
+        rows = [{'name': '证券Ⅱ', 'valuation_percentile': 85.0}]
+        grid, _, svc = _make_today(rows)
+        _add_plan(grid)
+        r = svc.today(prices={'512880': 1.10})
+        exits = r['alerts']['exit']
+        assert len(exits) == 1
+        assert exits[0]['tier'] == 'exit'
+        assert '收网' in exits[0]['verdict']
+
+    def test_no_exit_alert_at_65(self):
+        rows = [{'name': '证券Ⅱ', 'valuation_percentile': 65.0}]
+        grid, _, svc = _make_today(rows)
+        _add_plan(grid)
+        r = svc.today(prices={'512880': 1.10})
+        assert r['alerts']['exit'] == []
+
+    def test_unmatched_symbol_no_exit_alert(self):
+        rows = [{'name': '证券Ⅱ', 'valuation_percentile': 90.0}]
+        grid, _, svc = _make_today(rows)
+        _add_plan(grid, name='纳指网格', symbol='513100', symbol_name='纳指ETF')
+        r = svc.today(prices={'513100': 1.10})
+        assert r['alerts']['exit'] == []
+
+    def test_closed_plan_excluded(self):
+        rows = [{'name': '证券Ⅱ', 'valuation_percentile': 90.0}]
+        grid, _, svc = _make_today(rows)
+        _add_plan(grid, status='closed')
+        r = svc.today(prices={'512880': 1.10})
+        assert r['alerts']['exit'] == []

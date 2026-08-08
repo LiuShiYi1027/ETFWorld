@@ -27,7 +27,7 @@ from backend.services.backtest_service import BacktestService
 from backend.services.portfolio_service import PortfolioService
 from backend.services.today_service import TodayService
 from backend.services.review_service import ReviewService
-from backend.services.today_service import match_index_name
+from backend.utils.matching import match_index_name
 from backend.services import discovery_service
 from backend.services.watchlist_service import WatchlistService
 from backend.config import settings
@@ -358,7 +358,10 @@ class GridParams(BaseModel):
     base_price: float = Field(gt=0)
     grid_step: float = Field(gt=0, le=50, description='网格大小%')
     grid_count: int = Field(gt=0, le=50)
-    amount_per_grid: float = Field(gt=0)
+    grid_mode: str = Field(default='amount', pattern='^(amount|shares)$',
+                           description='投入方式：amount 等金额 / shares 等份额')
+    amount_per_grid: Optional[float] = Field(default=None)
+    shares_per_grid: Optional[float] = Field(default=None, description='每格份额（shares 模式）')
     step_increase: float = Field(default=0, ge=0, le=100, description='逐格加码%')
     profit_retention: float = Field(default=0, ge=0, le=100, description='留利润%')
     note: Optional[str] = None
@@ -367,14 +370,20 @@ class GridParams(BaseModel):
 @app.post('/api/grid/preview')
 def grid_preview(params: GridParams):
     """预览网格计划（含压力测试），不保存"""
-    return grid_service.preview(params.dict())
+    try:
+        return grid_service.preview(params.dict())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.post('/api/grid/plans')
 def grid_create(params: GridParams):
     if not params.symbol:
         raise HTTPException(400, '请填写标的代码')
-    return grid_service.create_plan(params.dict())
+    try:
+        return grid_service.create_plan(params.dict())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.get('/api/grid/plans')
@@ -386,7 +395,9 @@ class BacktestParams(BaseModel):
     symbol: str
     grid_step: float = Field(gt=0, le=50)
     grid_count: int = Field(gt=0, le=50)
-    amount_per_grid: float = Field(gt=0)
+    grid_mode: str = Field(default='amount', pattern='^(amount|shares)$')
+    amount_per_grid: Optional[float] = Field(default=None)
+    shares_per_grid: Optional[float] = Field(default=None)
     step_increase: float = Field(default=0, ge=0, le=100)
     profit_retention: float = Field(default=0, ge=0, le=100)
     lookback_days: int = Field(default=750, ge=20, le=1500)
@@ -396,6 +407,11 @@ class BacktestParams(BaseModel):
 @app.post('/api/grid/backtest')
 def grid_backtest(p: BacktestParams):
     """在真实 ETF 历史价格上回测网格 vs 一直持有（默认近3年，含日期轴）"""
+    if (p.grid_mode or 'amount') == 'shares':
+        if not p.shares_per_grid or p.shares_per_grid < 100:
+            raise HTTPException(400, '等份额模式下每格份额需 ≥ 100（1 手）')
+    elif not p.amount_per_grid or p.amount_per_grid <= 0:
+        raise HTTPException(400, '每格金额必须大于 0')
     bars = etf_service.daily_bars(p.symbol, p.lookback_days)
     if len(bars) < 20:
         raise HTTPException(400, '历史数据不足 · 请确认标的代码正确且已配置数据源')
@@ -406,7 +422,9 @@ def grid_backtest(p: BacktestParams):
 
 @app.post('/api/grid/optimize')
 def grid_optimize(p: BacktestParams):
-    """间距×格数参数寻优，基于同一段真实历史价格"""
+    """间距×格数参数寻优，基于同一段真实历史价格（按等金额口径）"""
+    if not p.amount_per_grid or p.amount_per_grid <= 0:
+        raise HTTPException(400, '参数寻优按等金额口径，每格金额必须大于 0')
     prices = etf_service.daily_closes(p.symbol, p.lookback_days)
     if len(prices) < 20:
         raise HTTPException(400, '历史数据不足 · 请确认标的代码正确且已配置 TUSHARE_TOKEN')
@@ -536,6 +554,52 @@ def ai_plan_review(params: AIPlanReviewParams):
     except AINotConfigured as e:
         raise HTTPException(503, str(e))
     except Exception as e:  # noqa: BLE001 — 网络/解析失败统一兜底
+        raise HTTPException(502, f'AI 调用失败: {e}')
+
+
+@app.post('/api/ai/exit-review')
+def ai_exit_review(params: AIPlanReviewParams):
+    """退出研判：计划状态 + 持仓 + 估值分位 → 该不该收网、怎么收。未配置key → 503。"""
+    plan = grid_service.get_plan(params.plan_id)
+    if not plan:
+        raise HTTPException(404, '计划不存在')
+
+    position, rounds, realized = {}, None, None
+    try:
+        ov = portfolio_service.overview()
+        for p in ov['accounts']['grid']['positions']:
+            if p.get('plan_id') == params.plan_id and p['shares'] > 0:
+                position = {k: p.get(k) for k in
+                            ('shares', 'cost', 'market_value', 'unrealized_pnl')}
+                break
+    except Exception as e:  # noqa: BLE001 — 持仓缺失不阻塞研判
+        logger.warning('退出研判持仓汇总失败: %s', e)
+    try:
+        for rp in review_service.review()['plans']:
+            if rp.get('plan_id') == params.plan_id:
+                rounds, realized = rp.get('rounds'), rp.get('realized_pnl')
+                break
+    except Exception as e:  # noqa: BLE001
+        logger.warning('退出研判复盘汇总失败: %s', e)
+
+    idx_ctx = {}
+    try:
+        rows = readiness_service.assess_all()
+        hit = match_index_name(plan.get('symbol_name') or '', [r['name'] for r in rows])
+        if hit:
+            r = next(x for x in rows if x['name'] == hit)
+            idx_ctx = {k: r.get(k) for k in ('name', 'valuation_percentile', 'verdict',
+                                             'volatility', 'dist_52w_high', 'trade_date')}
+    except Exception as e:  # noqa: BLE001
+        logger.warning('退出研判估值数据获取失败: %s', e)
+
+    ctx = {'plan': plan, 'position': position, 'rounds': rounds,
+           'realized_pnl': realized, 'index': idx_ctx}
+    try:
+        return ai_service.exit_review(ctx)
+    except AINotConfigured as e:
+        raise HTTPException(503, str(e))
+    except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f'AI 调用失败: {e}')
 
 
@@ -736,7 +800,32 @@ def portfolio_overview(with_quotes: bool = True):
                           if q and q.get('close')}
         except Exception as e:  # noqa: BLE001 — 行情不可用则按成本口径返回
             logger.warning('组合页行情获取失败，降级为成本口径: %s', e)
-    return portfolio_service.overview(prices)
+    try:
+        watchlist_rows = watchlist_service.list_indices()
+    except Exception as e:  # noqa: BLE001 — 监控池不可用则不产出行业分布
+        logger.warning('监控池读取失败，跳过行业分布: %s', e)
+        watchlist_rows = None
+    return portfolio_service.overview(prices, watchlist_rows=watchlist_rows)
+
+
+@app.get('/api/portfolio/allocation')
+def portfolio_allocation():
+    """资金分配建议：现金水位 × 雷达评分 → 下一笔钱的去向"""
+    prices = {}
+    try:
+        symbols = [p['symbol'] for p in trade_service.get_positions() if p['shares'] > 0]
+        if symbols:
+            prices = {s: q['close'] for s, q in etf_service.quotes(symbols).items()
+                      if q and q.get('close')}
+    except Exception as e:  # noqa: BLE001 — 行情不可用按成本口径
+        logger.warning('资金分配建议行情获取失败，降级为成本口径: %s', e)
+    ov = portfolio_service.overview(prices)
+    try:
+        rows = readiness_service.assess_all()
+    except Exception as e:  # noqa: BLE001 — 无估值数据时按无候选处理
+        logger.warning('资金分配建议雷达数据获取失败: %s', e)
+        rows = []
+    return PortfolioService.allocation_advice(ov, rows)
 
 
 @app.get('/api/portfolio/fund-flows')

@@ -1,37 +1,23 @@
 """
-今日视图服务：待办清单 + 三盏预警灯 + 组合摘要
+今日视图服务：待办清单 + 四盏预警灯 + 组合摘要
 
 把原先在前端驾驶舱的 planHealth 逻辑移到服务端，并升级为"执行感知"：
 - 下一买档：低于现价的最高 buy_price，且该档处于"待买"状态（无成交）
 - 下一卖档：高于现价的最低 sell_price，且该档处于"持有"状态（有买未卖）
 - 距现价 ≤ near_pct（默认 2%）的档位进入今日待办
 
-预警三盏灯：破网（现价 < 最低档或计划已 broken）、高位运行（现价 ≥ 基准价）、
-估值越界（标的可关联到监控指数且综合分位 >50% —— 雷达否决线）。
+预警四盏灯：破网（现价 < 最低档或计划已 broken）、高位运行（现价 ≥ 基准价）、
+估值越界（综合分位 >50% —— 雷达否决线，暂停买入）、
+退出引导（≥70% 只卖不买 / ≥80% 建议收网，阈值见 settings.EXIT_*）。
 """
 import logging
 from typing import Dict, List, Optional
 
+from backend.config import settings
 from backend.services.grid_service import derive_level_states
+from backend.utils.matching import match_index_name  # noqa: F401 — 供外部统一引用
 
 logger = logging.getLogger(__name__)
-
-
-def _strip_sw_suffix(name: str) -> str:
-    """申万行业名去掉 Ⅰ/Ⅱ/Ⅲ 后缀，便于和 ETF 名做子串匹配"""
-    return (name or '').rstrip('ⅠⅡⅢ')
-
-
-def match_index_name(symbol_name: str, index_names: List[str]) -> Optional[str]:
-    """ETF 名 → 监控指数名：最长子串匹配（"沪深300ETF"→"沪深300"，"证券ETF"→"证券Ⅱ"）"""
-    if not symbol_name:
-        return None
-    best = None
-    for full in index_names:
-        short = _strip_sw_suffix(full)
-        if short and short in symbol_name and (best is None or len(short) > len(_strip_sw_suffix(best))):
-            best = full
-    return best
 
 
 class TodayService:
@@ -52,7 +38,7 @@ class TodayService:
 
         readiness = self._readiness_map()
         todos, health = [], []
-        alerts = {'broken': [], 'high': [], 'valuation': []}
+        alerts = {'broken': [], 'high': [], 'valuation': [], 'exit': []}
 
         for p in plans:
             levels = p.get('levels') or []
@@ -83,6 +69,20 @@ class TodayService:
                     'index_name': idx_name,
                     'valuation_percentile': idx['valuation_percentile'],
                     'verdict': idx.get('verdict'),
+                })
+            # 退出引导：≥70% 只卖不买；≥80% 建议收网（CLOSED 计划不参与，上面已过滤）
+            if idx and idx.get('valuation_percentile') is not None \
+                    and idx['valuation_percentile'] >= settings.EXIT_WARN_PCT:
+                pct = idx['valuation_percentile']
+                tier = 'exit' if pct >= settings.EXIT_EXIT_PCT else 'warn'
+                alerts['exit'].append({
+                    'plan_id': p['id'], 'name': p['name'],
+                    'symbol': p['symbol'], 'symbol_name': p.get('symbol_name'),
+                    'index_name': idx_name,
+                    'valuation_percentile': pct,
+                    'tier': tier,
+                    'verdict': ('高估区：建议逐步卖出剩余持仓并收网' if tier == 'exit'
+                                else '偏高区：只卖不买，暂停新开网格'),
                 })
 
         todos.sort(key=lambda t: t['dist_pct'])

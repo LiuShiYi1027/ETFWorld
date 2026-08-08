@@ -1,6 +1,6 @@
 // 组合：三账户视图 + 安全线 + 底仓持仓 + 资金流水
 import * as API from '../api.js';
-import { store, toast, loadPortfolio } from '../store.js';
+import { store, toast, loadPortfolio, switchTab } from '../store.js';
 
 function wan(v) { return v == null ? '—' : '¥' + (v / 10000).toFixed(1) + '万'; }
 function yuan(v) { return v == null ? '—' : '¥' + Math.round(v).toLocaleString('zh-CN'); }
@@ -54,6 +54,30 @@ export const portfolioActions = {
   coreRows() { return store.portfolioData ? store.portfolioData.accounts.core.positions : []; },
   retainedRows() { return store.portfolioData ? store.portfolioData.accounts.retained.items : []; },
   flowRows() { return store.fundFlows; },
+
+  // 行业分布（占比条复用 acct 样式）；超过 40% 警告线的桶标红
+  industrySegments() {
+    const d = store.portfolioData;
+    if (!d || !d.industries || !d.industries.length) return [];
+    const palette = ['#93C5FD', '#86EFAC', '#FCD34D', '#FDA4AF', '#C4B5FD', '#67E8F9', '#D6D3CB'];
+    return d.industries.map((b, i) => ({
+      name: b.name, pct: b.pct,
+      color: b.pct > 40 ? '#F87171' : palette[i % palette.length],
+      label: `${wan(b.market_value)} · ${b.pct}%`,
+      over: b.pct > 40,
+    }));
+  },
+  industryWarn() {
+    const d = store.portfolioData;
+    return !!(d && d.concentration_warn);
+  },
+
+  // 资金分配建议
+  alloc() { return store.allocation; },
+  gotoPick(ts) {
+    switchTab('picks');
+    if (ts) store.drawer = ts;
+  },
 
   openFundFlow() {
     store.flowForm = {

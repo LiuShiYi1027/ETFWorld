@@ -16,17 +16,58 @@ async function runPlanAi() {
   } finally { store.planAiLoading = false; }
 }
 
+async function runExitAi() {
+  const d = store.detail;
+  if (!d || store.exitAiLoading) return;
+  store.exitAiLoading = true;
+  store.exitAi = null;
+  try {
+    store.exitAi = await API.post('/api/ai/exit-review', { plan_id: d.id });
+  } catch (e) {
+    toast('AI 退出研判失败 · ' + e.message);
+  } finally { store.exitAiLoading = false; }
+}
+
+// 计划关联监控指数的估值分位（名称子串匹配，与后端 today 预警同口径）；
+// 仅在 ≥70% 时返回（列表 chip 只提示退出区）
+function planValuation(p) {
+  if (!store.readiness.length || !p.symbol_name) return null;
+  const idx = store.readiness.find(r =>
+    p.symbol_name.includes(r.name.replace(/[ⅠⅡⅢ]$/, '')));
+  const pct = idx && idx.valuation_percentile;
+  if (pct == null || pct < 70) return null;
+  return { pct, name: idx.name, cls: pct >= 80 ? 'no' : 'maybe' };
+}
+
+// 收网退出：关闭计划（不再产生买卖待办）；持仓仍列示在网格账户、不计满格资金
+function closePlan(p) {
+  const v = planValuation(p);
+  const pos = store.portfolioData
+    && store.portfolioData.accounts.grid.positions.find(x => x.plan_id === p.id && x.shares > 0);
+  const posTxt = pos ? `当前持仓 <b>${pos.shares.toLocaleString('zh-CN')}</b> 份` : '当前无持仓';
+  toast(`收网将关闭「<b>${p.name}</b>」：${posTxt}，关闭后不再产生买卖待办，建议逢反弹卖出并记成交`
+    + (v ? `（${v.name} 分位 ${v.pct}%）` : ''), 'warn',
+    { label: '确认收网', fn: async () => {
+      await API.patch(`/api/grid/plans/${p.id}/status?status=closed`);
+      toast(`「<b>${p.name}</b>」已收网归档`);
+      await loadPlans(); loadToday();
+      if (store.detail && store.detail.id === p.id) loadPlanDetail(p.id);
+    } });
+}
+
 export const plansActions = {
   planRows() { return store.plans; },
   planCapital(p) {
     return (p.levels || []).reduce((s, l) => s + (l.amount || 0), 0);
   },
+  planValuation,
+  closePlan,
   statusChip: { active: 'go', paused: 'maybe', broken: 'no', closed: 'wait' },
 
   open(id, withAi) {
     openPlan(id).then(() => { if (withAi) runPlanAi(); });
   },
-  closeDetail() { store.detail = null; },
+  closeDetail() { store.detail = null; store.exitAi = null; },
 
   // ---- 棋盘与标尺 ----
   boardCells() {
@@ -99,6 +140,8 @@ export const plansActions = {
 
   // ---- AI 计划体检 ----
   runPlanAi,
+  // ---- AI 退出研判 ----
+  runExitAi,
 
   // ---- 成交录入 ----
   openTradeModal(p) {

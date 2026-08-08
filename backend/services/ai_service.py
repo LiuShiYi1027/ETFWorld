@@ -98,8 +98,12 @@ def _build_plan_prompt(plan: Dict) -> str:
     version = plan.get('version') or '1.0'
     parts = [f"用户的网格计划「{plan.get('name')}」，"
              f"标的 {plan.get('symbol_name') or ''}（{plan.get('symbol')}），网格{version}。"]
-    params = (f"基准价 {plan.get('base_price')}，格距 {plan.get('grid_step')}%，"
-              f"共 {plan.get('grid_count')} 格，首格金额 {plan.get('amount_per_grid')} 元")
+    if plan.get('grid_mode') == 'shares':
+        params = (f"基准价 {plan.get('base_price')}，格距 {plan.get('grid_step')}%，"
+                  f"共 {plan.get('grid_count')} 格，等份额模式，每格 {plan.get('shares_per_grid')} 份")
+    else:
+        params = (f"基准价 {plan.get('base_price')}，格距 {plan.get('grid_step')}%，"
+                  f"共 {plan.get('grid_count')} 格，首格金额 {plan.get('amount_per_grid')} 元")
     if float(plan.get('step_increase') or 0) > 0:
         params += f"，逐格加码 {plan.get('step_increase')}%"
     if float(plan.get('profit_retention') or 0) > 0:
@@ -221,6 +225,53 @@ def _build_discovery_prompt(ctx: Dict) -> str:
     return "".join(parts)
 
 
+_EXIT_SCHEMA_HINT = (
+    '只返回严格JSON，无其它文字：'
+    '{"verdict":"建议收网或准备退出或继续运行",'
+    '"oneLine":"一句话结论40字内",'
+    '"detail":"深入解读2-3段，每段2-3句：结合估值分位与计划状态具体分析，忌空话套话",'
+    '"reasons":["依据1","依据2","依据3"],'
+    '"actions":["建议动作1","建议动作2","建议动作3"]}'
+)
+
+
+def _build_exit_prompt(ctx: Dict) -> str:
+    """退出研判 prompt：计划状态 + 持仓 + 估值分位，回答"该不该收网、怎么收" """
+    plan = ctx.get('plan') or {}
+    parts = [f"用户的网格计划「{plan.get('name')}」，标的 {plan.get('symbol_name') or ''}"
+             f"（{plan.get('symbol')}），状态 {plan.get('status')}。"]
+    if plan.get('grid_mode') == 'shares':
+        parts.append(f"参数：基准价 {plan.get('base_price')}，格距 {plan.get('grid_step')}%，"
+                     f"共 {plan.get('grid_count')} 格，等份额模式，每格 {plan.get('shares_per_grid')} 份。")
+    else:
+        parts.append(f"参数：基准价 {plan.get('base_price')}，格距 {plan.get('grid_step')}%，"
+                     f"共 {plan.get('grid_count')} 格，每格 {plan.get('amount_per_grid')} 元。")
+    pos = ctx.get('position') or {}
+    if pos.get('shares'):
+        mv = pos.get('market_value')
+        parts.append(f"当前持仓 {pos['shares']} 份，成本 {pos.get('cost')} 元"
+                     + (f"，市值 {mv} 元，浮盈 {pos.get('unrealized_pnl')} 元。" if mv is not None else "。"))
+    else:
+        parts.append("当前该计划已无持仓。")
+    if ctx.get('rounds') is not None:
+        parts.append(f"历史套利 {ctx['rounds']} 回合，已实现收益 {ctx.get('realized_pnl')} 元。")
+    idx = ctx.get('index') or {}
+    if idx.get('valuation_percentile') is not None:
+        parts.append(f"关联指数 {idx.get('name')}：估值综合分位 {idx['valuation_percentile']}%"
+                     f"（70% 以上进入偏高区、80% 以上为高估区），"
+                     f"雷达结论「{idx.get('verdict')}」。")
+        if idx.get('dist_52w_high') is not None:
+            parts.append(f"距近一年高点 {idx['dist_52w_high']:+.1f}%，"
+                         f"年化波动 {idx.get('volatility')}%。")
+    parts.append("网格策略的生命周期是「低估开网 → 震荡套利 → 高估收网」。"
+                 "请判断这份计划现在处于哪个阶段：是否应该停止买入、逐步卖出剩余持仓、关闭计划收网？"
+                 "如果建议收网，给出具体的收尾节奏（如先停买单、逢反弹分批卖出、保留利润仓等）。"
+                 "verdict 含义：建议收网=高估明确应立即收尾；准备退出=进入偏高区只卖不买、制定退出计划；"
+                 "继续运行=估值仍可接受。只做研究解读，不给出收益承诺。")
+    parts.append(_EXIT_SCHEMA_HINT)
+    return "".join(parts)
+
+
 class AIService:
     """AI 研判客户端（OpenAI 兼容 chat/completions，服务商不限）"""
 
@@ -290,6 +341,34 @@ class AIService:
                     {"role": "user", "content": _build_discovery_prompt(ctx)},
                 ]))))
         return self._cache[key]
+
+    def exit_review(self, ctx: Dict) -> Dict:
+        """退出研判：该不该收网、怎么收。按 (计划, 估值数据日期) 缓存"""
+        if not self.enabled:
+            raise AINotConfigured("AI_API_KEY 未配置，请在设置页或 backend/.env 填入后重启")
+        key = ('exit', (ctx.get('plan') or {}).get('id'),
+               (ctx.get('index') or {}).get('trade_date'))
+        if key not in self._cache:
+            self._remember(key, self._normalize_exit(
+                self._parse(self._chat([
+                    {"role": "system", "content": _SYSTEM},
+                    {"role": "user", "content": _build_exit_prompt(ctx)},
+                ]))))
+        return self._cache[key]
+
+    @staticmethod
+    def _normalize_exit(data: Dict) -> Dict:
+        verdict = data.get("verdict")
+        if verdict not in ("建议收网", "准备退出", "继续运行"):
+            verdict = "准备退出"
+        return {
+            "verdict": verdict,
+            "oneLine": str(data.get("oneLine", ""))[:60],
+            "detail": str(data.get("detail", ""))[:1200],
+            "reasons": [str(x) for x in (data.get("reasons") or [])][:5],
+            "actions": [str(x) for x in (data.get("actions") or [])][:4],
+            "source": "ai",
+        }
 
     @staticmethod
     def _normalize_discovery(data: Dict) -> Dict:

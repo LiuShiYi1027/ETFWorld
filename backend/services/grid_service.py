@@ -22,9 +22,11 @@ def generate_levels(
     base_price: float,
     grid_step: float,
     grid_count: int,
-    amount_per_grid: float,
+    amount_per_grid: float = 0,
     step_increase: float = 0,
     profit_retention: float = 0,
+    grid_mode: str = 'amount',
+    shares_per_grid: float = 0,
 ) -> List[Dict]:
     """
     生成网格档位表
@@ -33,9 +35,12 @@ def generate_levels(
         base_price: 基准价（第1格买入价）
         grid_step: 网格大小（%），如5表示每格5%
         grid_count: 网格数量
-        amount_per_grid: 第1格买入金额
-        step_increase: 逐格加码比例（%），每往下一格金额增加该比例
+        amount_per_grid: 第1格买入金额（grid_mode=amount 时生效）
+        step_increase: 逐格加码比例（%），amount 模式加码金额、shares 模式加码份额
         profit_retention: 留利润比例（%），卖出时保留利润对应份额（网格2.0）
+        grid_mode: 投入方式 amount=等金额（每格金额恒定，份额随下跌增多）/
+                   shares=等份额（每格份额恒定，金额随下跌减少，天然限制底部投入）
+        shares_per_grid: 第1格买入份额（grid_mode=shares 时生效，按100股整手取整）
 
     Returns:
         档位列表，每档含买入价、卖出价、金额、份额、预期收益
@@ -47,9 +52,13 @@ def generate_levels(
         buy_price = round(base_price * (1 - step) ** i, 4)
         # 卖出价 = 买入价/(1-step)，严格"回升一格"，与上一格买入价重合
         sell_price = round(buy_price / (1 - step), 4)
-        amount = round(amount_per_grid * (1 + step_increase / 100) ** i, 2)
-        # 份额按100股(1手)取整
-        shares = int(amount / buy_price / 100) * 100 if buy_price > 0 else 0
+        if grid_mode == 'shares':
+            # 等份额：份额逐格恒定（逐格加码时按份额递增），金额随价格下跌而减少
+            shares = int(shares_per_grid * (1 + step_increase / 100) ** i / 100) * 100
+        else:
+            # 等金额：金额逐格恒定（逐格加码时按金额递增），份额随价格下跌而增多
+            amount = round(amount_per_grid * (1 + step_increase / 100) ** i, 2)
+            shares = int(amount / buy_price / 100) * 100 if buy_price > 0 else 0
         actual_amount = round(shares * buy_price, 2)
 
         gross_profit = round(shares * (sell_price - buy_price), 2)
@@ -158,18 +167,41 @@ def pressure_test(levels: List[Dict], base_price: float) -> Dict:
     }
 
 
+def _resolve_mode(params: Dict) -> tuple:
+    """解析投入方式：返回 (grid_mode, amount_per_grid, shares_per_grid)。
+
+    amount 模式要求每格金额 > 0；shares 模式要求每格份额 ≥ 100（1 手）。
+    shares 模式下 amount_per_grid 归一为 0（档位金额以 levels 为准）。
+    """
+    mode = params.get('grid_mode') or 'amount'
+    if mode not in ('amount', 'shares'):
+        raise ValueError("grid_mode 必须是 amount(等金额) 或 shares(等份额)")
+    if mode == 'shares':
+        shares = float(params.get('shares_per_grid') or 0)
+        if shares < 100:
+            raise ValueError('等份额模式下每格份额需 ≥ 100（1 手）')
+        return mode, 0.0, shares
+    amount = float(params.get('amount_per_grid') or 0)
+    if amount <= 0:
+        raise ValueError('每格金额必须大于 0')
+    return mode, amount, 0.0
+
+
 class GridService:
     """网格计划管理"""
 
     def preview(self, params: Dict) -> Dict:
         """预览网格计划（不保存）"""
+        mode, amount, shares = _resolve_mode(params)
         levels = generate_levels(
             base_price=float(params['base_price']),
             grid_step=float(params['grid_step']),
             grid_count=int(params['grid_count']),
-            amount_per_grid=float(params['amount_per_grid']),
+            amount_per_grid=amount,
             step_increase=float(params.get('step_increase', 0)),
             profit_retention=float(params.get('profit_retention', 0)),
+            grid_mode=mode,
+            shares_per_grid=shares,
         )
         return {
             'levels': levels,
@@ -178,6 +210,7 @@ class GridService:
 
     def create_plan(self, params: Dict) -> Dict:
         """创建并保存网格计划"""
+        mode, amount, shares = _resolve_mode(params)
         result = self.preview(params)
         with get_session() as session:
             plan = GridPlanTable(
@@ -185,10 +218,12 @@ class GridService:
                 symbol=params['symbol'],
                 symbol_name=params.get('symbol_name'),
                 version='2.0' if float(params.get('profit_retention', 0)) > 0 else '1.0',
+                grid_mode=mode,
+                shares_per_grid=shares or None,
                 base_price=params['base_price'],
                 grid_step=params['grid_step'],
                 grid_count=params['grid_count'],
-                amount_per_grid=params['amount_per_grid'],
+                amount_per_grid=amount,
                 step_increase=params.get('step_increase', 0),
                 profit_retention=params.get('profit_retention', 0),
                 levels=result['levels'],
@@ -236,6 +271,8 @@ class GridService:
                 'base_price': new_base_price, 'grid_step': float(plan.grid_step),
                 'grid_count': plan.grid_count,
                 'amount_per_grid': float(plan.amount_per_grid),
+                'grid_mode': plan.grid_mode or 'amount',
+                'shares_per_grid': float(plan.shares_per_grid or 0),
                 'step_increase': float(plan.step_increase or 0),
                 'profit_retention': float(plan.profit_retention or 0),
             }
@@ -276,6 +313,8 @@ class GridService:
             'symbol': p.symbol,
             'symbol_name': p.symbol_name,
             'version': p.version,
+            'grid_mode': p.grid_mode or 'amount',
+            'shares_per_grid': float(p.shares_per_grid) if p.shares_per_grid else None,
             'base_price': float(p.base_price),
             'grid_step': float(p.grid_step),
             'grid_count': p.grid_count,

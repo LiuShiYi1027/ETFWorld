@@ -7,7 +7,9 @@ function formParams() {
   return {
     symbol: f.symbol, symbol_name: f.symbol_name, name: f.name || (f.symbol_name || '') + '网格',
     base_price: parseFloat(f.base_price), grid_step: parseFloat(f.grid_step),
-    grid_count: parseInt(f.grid_count, 10), amount_per_grid: parseFloat(f.amount_per_grid),
+    grid_count: parseInt(f.grid_count, 10), grid_mode: f.grid_mode || 'amount',
+    amount_per_grid: parseFloat(f.amount_per_grid),
+    shares_per_grid: parseFloat(f.shares_per_grid),
     step_increase: parseFloat(f.step_increase || 0), profit_retention: parseFloat(f.profit_retention || 0),
   };
 }
@@ -17,7 +19,9 @@ function validateForm() {
   if (!(p.base_price > 0)) return '基准价必须大于 0';
   if (!(p.grid_step > 0 && p.grid_step <= 20)) return '格距需在 0-20% 之间';
   if (!(p.grid_count >= 2 && p.grid_count <= 30)) return '格数需在 2-30 之间';
-  if (!(p.amount_per_grid > 0)) return '每格金额必须大于 0';
+  if (p.grid_mode === 'shares') {
+    if (!(p.shares_per_grid >= 100)) return '等份额模式下每格份额需 ≥ 100（1 手）';
+  } else if (!(p.amount_per_grid > 0)) return '每格金额必须大于 0';
   return null;
 }
 
@@ -126,6 +130,10 @@ export const plannerActions = {
   pickEtf,
   preview,
   runBacktest,
+  setGridMode(m) {
+    store.plannerForm.grid_mode = m;
+    if (store.plannerPreview) preview();  // 已预览过就按新模式重算
+  },
   setLookback(d) {
     store.plannerLookback = d;
     if (store.plannerPreview) runBacktest();  // 已预览过就自动重跑
@@ -167,6 +175,9 @@ export const plannerActions = {
     return f.symbol ? `${f.symbol_name || ''} ${f.symbol}` : '未选择';
   },
   async runOptimize() {
+    if (store.plannerForm.grid_mode === 'shares') {
+      toast('参数寻优暂按等金额口径 · 请切回等金额后寻优', 'warn'); return;
+    }
     const err = validateForm();
     if (err) { toast(err, 'warn'); return; }
     store.optLoading = true;
@@ -182,6 +193,9 @@ export const plannerActions = {
   },
   async runOptimizeAi() {
     if (store.optAiLoading) return;
+    if (store.plannerForm.grid_mode === 'shares') {
+      toast('参数寻优暂按等金额口径 · 请切回等金额后寻优', 'warn'); return;
+    }
     const err = validateForm();
     if (err) { toast(err, 'warn'); return; }
     store.optAiLoading = true;

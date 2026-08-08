@@ -309,8 +309,15 @@
             <div class="field"><label>基准价（第 1 格买入价）</label><input v-model="plannerForm.base_price" type="number" step="0.001"></div>
             <div class="field"><label>格距 %</label><input v-model="plannerForm.grid_step" type="number" step="0.5" min="1" max="20"></div>
             <div class="field"><label>格数</label><input v-model="plannerForm.grid_count" type="number" min="2" max="30"></div>
-            <div class="field"><label>每格金额（元）</label><input v-model="plannerForm.amount_per_grid" type="number" step="1000"></div>
-            <div class="field"><label>逐格加码 %</label><input v-model="plannerForm.step_increase" type="number" min="0" max="50"></div>
+            <div class="field"><label>投入方式</label>
+              <div class="seg" style="display:flex;">
+                <button :class="{on:plannerForm.grid_mode==='amount'}" @click="setGridMode('amount')" style="flex:1;">等金额</button>
+                <button :class="{on:plannerForm.grid_mode==='shares'}" @click="setGridMode('shares')" style="flex:1;">等份额</button>
+              </div>
+            </div>
+            <div class="field" v-if="plannerForm.grid_mode!=='shares'"><label>每格金额（元）</label><input v-model="plannerForm.amount_per_grid" type="number" step="1000"></div>
+            <div class="field" v-if="plannerForm.grid_mode==='shares'"><label>每格份额（股）</label><input v-model="plannerForm.shares_per_grid" type="number" step="100" min="100"></div>
+            <div class="field"><label>逐格加码 %<span v-if="plannerForm.grid_mode==='shares'">（份额）</span></label><input v-model="plannerForm.step_increase" type="number" min="0" max="50"></div>
             <div class="field"><label>留利润 %（网格 2.0）</label><input v-model="plannerForm.profit_retention" type="number" min="0" max="90"></div>
           </div>
           <div class="btnrow">
@@ -373,7 +380,7 @@
     </div>
     <div>
       <div class="card" v-if="plannerPreview">
-        <div class="card-h"><div class="t">档位表 · {{ plannerPreview.levels.length }} 格</div><div class="d">基准 <b>{{ plannerForm.base_price }}</b> · 格距 <b>{{ plannerForm.grid_step }}%</b></div></div>
+        <div class="card-h"><div class="t">档位表 · {{ plannerPreview.levels.length }} 格</div><div class="d">基准 <b>{{ plannerForm.base_price }}</b> · 格距 <b>{{ plannerForm.grid_step }}%</b> · {{ plannerForm.grid_mode==='shares' ? '等份额' : '等金额' }}</div></div>
         <div class="card-b" style="padding-left:10px;padding-right:10px;">
           <table>
             <thead><tr><th class="l">格</th><th>跌幅</th><th>买入价</th><th>卖出价</th><th>金额</th><th>份额</th><th>卖出份额</th><th>留存</th><th>预期收益</th></tr></thead>
@@ -472,8 +479,9 @@
         <tbody>
           <tr class="clk" v-for="p in plans" :key="p.id" @click="open(p.id)">
             <td class="l"><span class="sym">{{ p.name }}</span></td>
-            <td class="l">{{ p.symbol_name || '' }} <span style="color:var(--faint);font-size:11px;">{{ p.symbol }}</span></td>
-            <td>{{ p.version }}</td><td>{{ p.base_price }}</td><td>{{ p.grid_step }}%</td><td>{{ p.grid_count }}</td>
+            <td class="l">{{ p.symbol_name || '' }} <span style="color:var(--faint);font-size:11px;">{{ p.symbol }}</span>
+              <span class="chip" v-if="planValuation(p)" :class="planValuation(p).cls" style="margin-left:4px;" :title="planValuation(p).name + ' 估值分位'">{{ planValuation(p).pct }}%</span></td>
+            <td>{{ p.version }}<span class="chip blue" v-if="p.grid_mode==='shares'" style="margin-left:4px;">等份额</span></td><td>{{ p.base_price }}</td><td>{{ p.grid_step }}%</td><td>{{ p.grid_count }}</td>
             <td>{{ fmt(planCapital(p),0) }}</td>
             <td class="l"><span class="chip" :class="statusChip[p.status]||'wait'">{{ p.status.toUpperCase() }}</span></td>
             <td class="l" @click="$event.stopPropagation();">
@@ -493,7 +501,7 @@
     <div class="card">
       <div class="card-h">
         <div class="t">计划详情 · {{ detail.name }} <span class="chip" :class="statusChip[detail.status]||'wait'" style="margin-left:6px;">{{ detail.status.toUpperCase() }}</span></div>
-        <div class="d">{{ detail.symbol_name || detail.symbol }} · {{ detail.version }} · 基准 {{ detail.base_price }} · {{ detail.grid_step }}% × {{ detail.grid_count }} 格 · 满格 {{ fmt(planCapital(detail),0) }}</div>
+        <div class="d">{{ detail.symbol_name || detail.symbol }} · {{ detail.version }} · {{ detail.grid_mode==='shares' ? '等份额' : '等金额' }} · 基准 {{ detail.base_price }} · {{ detail.grid_step }}% × {{ detail.grid_count }} 格 · 满格 {{ fmt(planCapital(detail),0) }}</div>
       </div>
       <div class="card-b">
         <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
@@ -530,9 +538,11 @@
 
         <div class="btnrow">
           <button class="btn" style="color:var(--accent);border-color:#86EFAC;" @click="runPlanAi()">✦ AI 计划体检</button>
+          <button class="btn" style="color:var(--amber-ink);border-color:#FCD34D;" @click="runExitAi()">✦ AI 退出研判</button>
           <button class="btn" @click="openTradeModal(detail)">记一笔成交</button>
           <button class="btn" v-if="detail.status==='active'" @click="setStatus(detail,'paused')">暂停</button>
           <button class="btn primary" v-if="detail.status==='paused'" @click="setStatus(detail,'active')">恢复</button>
+          <button class="btn danger" v-if="detail.status==='active'||detail.status==='paused'" @click="closePlan(detail)">收网退出</button>
           <button class="btn" @click="closeDetail()">收起</button>
         </div>
         <div class="ai-loading" v-if="planAiLoading">AI 正在体检…</div>
@@ -544,6 +554,15 @@
           <div class="ai-sec" v-if="planAi.risks && planAi.risks.length"><div class="ai-k">风险提示</div><div class="ai-p mute" v-for="r in planAi.risks" :key="r">· {{ r }}</div></div>
           <div class="ai-sec" v-if="planAi.paramHint"><div class="ai-k">参数倾向</div><div class="ai-p">{{ planAi.paramHint }}</div></div>
           <div class="ai-disc">计划体检基于参数与压力测试数据，不构成投资建议。按（计划, 数据日期）缓存。</div>
+        </div>
+        <div class="ai-loading" v-if="exitAiLoading">AI 正在研判退出…</div>
+        <div class="ai-block" :class="{show:!!exitAi}" v-if="exitAi">
+          <div class="ai-t">✦ AI 退出研判 · {{ detail.name }}<span class="chip" :class="exitAi.verdict==='继续运行'?'go':exitAi.verdict==='建议收网'?'no':'maybe'" style="margin-left:auto;">{{ exitAi.verdict }}</span></div>
+          <div class="ai-sec"><div class="ai-k">结论</div><div class="ai-p">{{ exitAi.oneLine }}</div></div>
+          <div class="ai-sec" v-if="exitAi.detail"><div class="ai-k">深入解读</div><div class="ai-p">{{ exitAi.detail }}</div></div>
+          <div class="ai-sec" v-if="exitAi.reasons && exitAi.reasons.length"><div class="ai-k">关键依据</div><div class="ai-p mute" v-for="r in exitAi.reasons" :key="r">· {{ r }}</div></div>
+          <div class="ai-sec" v-if="exitAi.actions && exitAi.actions.length"><div class="ai-k">建议动作</div><div class="ai-p mute" v-for="r in exitAi.actions" :key="r">· {{ r }}</div></div>
+          <div class="ai-disc">退出研判基于计划状态、持仓与估值分位，不构成投资建议。按（计划, 数据日期）缓存。</div>
         </div>
       </div>
       <div class="card-h" style="border-top:1px solid var(--line);padding-top:14px;"><div class="t">成交记录</div><div class="d">{{ detailTrades.length }} 笔 · 自动匹配档位</div></div>
@@ -605,6 +624,35 @@
       </div>
     </div>
     <div class="note">若所有网格按计划买满，需动用本金的 {{ safety().ratioPct }}%；现金 {{ safety().cash }}，缺口 {{ safety().gap }}。{{ safety().warn ? '已越过警告线：新建计划前请先缩减格数或每格金额。' : '处于安全区。' }}</div>
+  </div>
+
+  <div class="card" v-if="industrySegments().length">
+    <div class="card-h"><div class="t">行业分布</div><div class="d">全部持仓按市值聚合 · 单一行业超 40% 标红</div></div>
+    <div class="card-b">
+      <div class="acct-bar"><i v-for="s in industrySegments()" :key="s.name" :style="{width:s.pct+'%',background:s.color}" :title="s.name"></i></div>
+      <div class="acct-legend">
+        <div class="acct-leg" v-for="s in industrySegments()" :key="s.name"><span class="sw" :style="{background:s.color}"></span>{{ s.name }} <span class="pc">{{ s.label }}</span></div>
+      </div>
+    </div>
+    <div class="note" v-if="industryWarn()" style="color:var(--red-ink);">单一行业占比超过 40%：看似分散的多个网格可能押在同一条赛道上，建议开新网前优先补齐其他行业。</div>
+    <div class="note" v-else>行业归属按持仓标的关联监控指数判定；未匹配的归入「其他」。</div>
+  </div>
+
+  <div class="card" v-if="alloc()">
+    <div class="card-h"><div class="t">资金分配建议</div><div class="d">现金水位 × 雷达评分</div></div>
+    <div class="card-b">
+      <div style="font-weight:700;margin-bottom:4px;" :style="{color:alloc().level==='warn'?'var(--red-ink)':alloc().level==='info'?'var(--accent)':'var(--text)'}">{{ alloc().headline }}</div>
+      <div style="font-size:12.5px;color:var(--muted);line-height:1.7;">{{ alloc().detail }}</div>
+      <div v-if="alloc().candidates && alloc().candidates.length" style="margin-top:8px;">
+        <div class="clk" v-for="c in alloc().candidates" :key="c.ts_code" @click="gotoPick(c.ts_code)"
+             style="display:flex;align-items:center;gap:8px;padding:7px 2px;border-top:1px solid var(--line);">
+          <span style="font-weight:600;">{{ c.name }}</span>
+          <span class="chip go">评分 {{ Math.round(c.score) }}</span>
+          <span style="color:var(--faint);font-size:12px;">分位 {{ c.valuation_percentile }}%</span>
+          <span style="margin-left:auto;color:var(--faint);font-size:12px;">去机会页 →</span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="grid2" style="grid-template-columns:1.15fr 1fr;">

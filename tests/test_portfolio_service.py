@@ -110,3 +110,62 @@ class TestOverview:
         pf.add_flow({'flow_date': '2026-01-05', 'direction': 'deposit', 'amount': 100000})
         ov = pf.overview()
         assert ov['grid_full_capital'] == 0.0  # BROKEN 不计入安全线分子
+
+
+_WATCHLIST = [
+    {'ts_code': '000300.SH', 'name': '沪深300', 'category': '宽基', 'source': 'index'},
+    {'ts_code': '801193.SI', 'name': '证券Ⅱ', 'category': '行业二级', 'source': 'sw'},
+    {'ts_code': '801880.SI', 'name': '汽车', 'category': '行业一级', 'source': 'sw'},
+]
+
+
+class TestIndustryBreakdown:
+    def test_buckets_and_concentration_warn(self, services):
+        pf, _, trade = services
+        trade.add_trade({'symbol': '512880', 'symbol_name': '证券ETF',
+                         'trade_date': '2026-03-01', 'direction': 'buy',
+                         'price': 1.0, 'shares': 6000})   # 证券 6000
+        trade.add_trade({'symbol': '510300', 'symbol_name': '沪深300ETF',
+                         'trade_date': '2026-03-01', 'direction': 'buy',
+                         'price': 4.0, 'shares': 1000})   # 宽基 4000
+        ov = pf.overview(prices={'512880': 1.0, '510300': 4.0},
+                         watchlist_rows=_WATCHLIST)
+        ind = {b['name']: b for b in ov['industries']}
+        assert ind['证券']['pct'] == 60.0
+        assert ind['宽基']['pct'] == 40.0
+        assert ov['concentration_warn'] is True  # 60% > 40% 警告线
+
+    def test_unmatched_goes_other_and_no_warn(self, services):
+        pf, _, trade = services
+        trade.add_trade({'symbol': '513100', 'symbol_name': '纳指ETF',
+                         'trade_date': '2026-03-01', 'direction': 'buy',
+                         'price': 1.5, 'shares': 2000})
+        trade.add_trade({'symbol': '516110', 'symbol_name': '汽车ETF',
+                         'trade_date': '2026-03-01', 'direction': 'buy',
+                         'price': 1.0, 'shares': 3000})
+        ov = pf.overview(prices={'513100': 1.5, '516110': 1.0},
+                         watchlist_rows=_WATCHLIST)
+        ind = {b['name']: b for b in ov['industries']}
+        assert ind['其他']['pct'] == 50.0  # 纳指匹配不到监控指数
+        assert ind['汽车']['pct'] == 50.0
+        assert ov['concentration_warn'] is True  # 其他桶 50% 也触发（占比是事实）
+
+    def test_no_watchlist_no_industries(self, services):
+        pf, _, trade = services
+        trade.add_trade({'symbol': '510300', 'symbol_name': '沪深300ETF',
+                         'trade_date': '2026-03-01', 'direction': 'buy',
+                         'price': 4.0, 'shares': 1000})
+        ov = pf.overview(prices={'510300': 4.0})
+        assert 'industries' not in ov
+
+    def test_missing_price_falls_back_to_cost(self, services):
+        pf, _, trade = services
+        trade.add_trade({'symbol': '512880', 'symbol_name': '证券ETF',
+                         'trade_date': '2026-03-01', 'direction': 'buy',
+                         'price': 1.0, 'shares': 6000})
+        trade.add_trade({'symbol': '510300', 'symbol_name': '沪深300ETF',
+                         'trade_date': '2026-03-01', 'direction': 'buy',
+                         'price': 4.0, 'shares': 1000})
+        ov = pf.overview(prices={}, watchlist_rows=_WATCHLIST)  # 全部缺价 → 按成本
+        ind = {b['name']: b for b in ov['industries']}
+        assert ind['证券']['market_value'] == 6000.0

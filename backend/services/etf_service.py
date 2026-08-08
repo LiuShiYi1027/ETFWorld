@@ -122,14 +122,20 @@ class ETFService:
         return self._amount_cache
 
     def search(self, keyword: str, limit: int = 20) -> List[Dict]:
-        """按关键词搜索 ETF（匹配名称或跟踪基准），按成交额降序"""
+        """按关键词搜索 ETF（匹配代码/名称/跟踪基准），按成交额降序"""
         kw = _clean_industry_name(keyword)
         if not kw:
             return []
         keywords = [kw] + ALIASES.get(kw, [])
+        # 纯数字（可带交易所后缀）按代码前缀匹配：159938 / 159938.SZ → 159938.SZ
+        m = re.fullmatch(r'(\d{1,6})(?:\.(?:SH|SZ))?', kw, re.IGNORECASE)
+        kw_code = m.group(1) if m else None
         basic = self._load_basic()
         matched = []
         for b in basic:
+            if kw_code and (b.get('ts_code') or '').split('.')[0].startswith(kw_code):
+                matched.append(b)
+                continue
             name = b['name'] or ''
             bench = _clean_benchmark(b['benchmark'])
             if any(k in name or k in bench for k in keywords):

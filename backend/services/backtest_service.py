@@ -27,16 +27,19 @@ LOW_ACTIVITY_TRADES = 3
 
 
 def simulate_grid(prices: List[float], step: float, count: int, amount: float,
-                  inc: float = 0, ret: float = 0, base: float = None) -> Dict:
+                  inc: float = 0, ret: float = 0, base: float = None,
+                  mode: str = 'amount', shares: float = 0) -> Dict:
     """在给定价格序列上跑一遍网格，返回净值曲线与统计。
-    base 缺省取序列首日价（窗口起点锚定）；显式传入则作为基准价（穿越点锚定）。"""
+    base 缺省取序列首日价（窗口起点锚定）；显式传入则作为基准价（穿越点锚定）。
+    mode='shares' 时按每格固定份额（shares）生成档位，amount 忽略。"""
     if not prices:
         return {'g': [], 'h': [], 'grid_ret': 0, 'hold_ret': 0,
                 'trades': 0, 'max_dd': 0, 'budget': 0, 'n': 0,
                 'retained_shares': 0, 'broken_idx': None, 'invested_pct': 0,
                 'events': [], 'prices': []}
     base = base or prices[0]
-    levels = generate_levels(base, step, count, amount, inc, ret)
+    levels = generate_levels(base, step, count, amount, inc, ret,
+                             grid_mode=mode, shares_per_grid=shares)
     budget = sum(l['amount'] for l in levels) or 1.0
     book = [{'buy': l['buy_price'], 'sell': l['sell_price'],
              'shares': l['shares'], 'sell_shares': l['sell_shares'],
@@ -97,7 +100,8 @@ def simulate_grid(prices: List[float], step: float, count: int, amount: float,
 
 
 def simulate_rebase_grid(prices: List[float], step: float, count: int, amount: float,
-                         inc: float = 0, ret: float = 0) -> Dict:
+                         inc: float = 0, ret: float = 0,
+                         mode: str = 'amount', shares: float = 0) -> Dict:
     """自动上移重开口径的回测（与 simulate_grid 同输入，供静态/重开对比）。
 
     规则：价格涨过当前网格第 1 格卖出价（此时所有持仓必然已兑现、账户全现金），
@@ -125,7 +129,8 @@ def simulate_rebase_grid(prices: List[float], step: float, count: int, amount: f
         if pr > base / (1 - top_step):  # 涨穿顶格 → 网格全空 → 上移重开
             base = pr
             rebases += 1
-            levels = generate_levels(base, step, count, amount, inc, ret)
+            levels = generate_levels(base, step, count, amount, inc, ret,
+                                     grid_mode=mode, shares_per_grid=shares)
             total_capital += sum(l['amount'] for l in levels)
             book = [{'buy': l['buy_price'], 'sell': l['sell_price'],
                      'shares': l['shares'], 'sell_shares': l['sell_shares'],
@@ -184,10 +189,12 @@ class BacktestService:
         r = simulate_grid(
             prices,
             float(params['grid_step']), int(params['grid_count']),
-            float(params['amount_per_grid']),
+            float(params.get('amount_per_grid') or 0),
             float(params.get('step_increase', 0)),
             float(params.get('profit_retention', 0)),
             base=(prices[0] if anchor == 'cross' else None),
+            mode=params.get('grid_mode', 'amount'),
+            shares=float(params.get('shares_per_grid') or 0),
         )
         r['base'] = prices[0] if prices else None
         r['last'] = prices[-1] if prices else None
@@ -198,9 +205,11 @@ class BacktestService:
         if params.get('compare_rebase'):
             r['rebase'] = simulate_rebase_grid(
                 prices, float(params['grid_step']), int(params['grid_count']),
-                float(params['amount_per_grid']),
+                float(params.get('amount_per_grid') or 0),
                 float(params.get('step_increase', 0)),
-                float(params.get('profit_retention', 0)))
+                float(params.get('profit_retention', 0)),
+                mode=params.get('grid_mode', 'amount'),
+                shares=float(params.get('shares_per_grid') or 0))
         return r
 
     def optimize(self, params: Dict, prices: List[float],

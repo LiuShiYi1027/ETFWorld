@@ -29,11 +29,14 @@ export const store = reactive({
   recentTrades: [],
   dismissedTodos: {},      // 今日待办本地已确认（页面级，不持久化）
   planAi: null, planAiLoading: false,
+  exitAi: null, exitAiLoading: false,
+  allocation: null,        // 资金分配建议 /api/portfolio/allocation
   brkAction: null,
   // 规划页
   plannerForm: {
     symbol: '', symbol_name: '', name: '', base_price: '',
-    grid_step: 5, grid_count: 10, amount_per_grid: 10000,
+    grid_step: 5, grid_count: 10, grid_mode: 'amount',
+    amount_per_grid: 10000, shares_per_grid: 10000,
     step_increase: 0, profit_retention: 0,
   },
   etfQuery: '', etfResults: [],
@@ -80,7 +83,7 @@ export function switchTab(name) {
     if (!store.reviewData) loadReview();
   }
   if (name === 'picks') { loadReadiness(); loadWatchlist(); }
-  if (name === 'plans') loadPlans();
+  if (name === 'plans') { loadPlans(); loadReadiness(); }
   if (name === 'portfolio') loadPortfolio();
   if (name === 'review') loadReview();
   if (name === 'planner') loadReadiness();
@@ -138,6 +141,7 @@ export async function loadPlans() {
 
 export async function loadPlanDetail(id) {
   store.detailLoading = true;
+  store.exitAi = null;  // 切换计划时清掉上一只的退出研判
   try {
     store.detail = await API.get(`/api/grid/plans/${id}`);
     store.detailTrades = await API.get(`/api/trades?plan_id=${id}`);
@@ -147,6 +151,8 @@ export async function loadPlanDetail(id) {
 export async function loadPortfolio() {
   store.portfolioData = await API.get('/api/portfolio');
   store.fundFlows = await API.get('/api/portfolio/fund-flows');
+  try { store.allocation = await API.get('/api/portfolio/allocation'); }
+  catch { store.allocation = null; }  // 雷达数据缺失时建议卡隐藏
 }
 
 export async function loadReview() {

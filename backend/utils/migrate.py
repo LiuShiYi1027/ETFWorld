@@ -59,9 +59,15 @@ def _m001_reconcile(conn, dialect):
     _reconcile_columns(conn, dialect)
 
 
+def _m002_grid_mode(conn, dialect):
+    """迁移 2：v2.3 网格投入方式（grid_mode / shares_per_grid 列）。"""
+    _reconcile_columns(conn, dialect)
+
+
 # (版本号, 迁移函数)；版本号严格递增，迁移函数签名 fn(conn, dialect)
 MIGRATIONS = [
     (1, _m001_reconcile),
+    (2, _m002_grid_mode),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]

@@ -159,6 +159,58 @@ def _fake_chat_json(svc, monkeypatch, payload):
     return calls
 
 
+class TestExitReview:
+    _CTX = {
+        'plan': {'id': 3, 'name': '证券网格', 'symbol': '512880',
+                 'symbol_name': '证券ETF', 'status': 'active',
+                 'base_price': 1.15, 'grid_step': 6, 'grid_count': 8,
+                 'amount_per_grid': 8000},
+        'position': {'shares': 12000, 'cost': 13200.0,
+                     'market_value': 15600.0, 'unrealized_pnl': 2400.0},
+        'rounds': 7, 'realized_pnl': 1850.0,
+        'index': {'name': '证券Ⅱ', 'valuation_percentile': 83.5,
+                  'verdict': '不建议（估值偏高）', 'volatility': 28.1,
+                  'dist_52w_high': -2.4, 'trade_date': '2026-08-05'},
+    }
+
+    def test_prompt_covers_lifecycle(self):
+        from backend.services.ai_service import _build_exit_prompt
+        p = _build_exit_prompt(self._CTX)
+        assert '证券网格' in p and '当前持仓 12000 份' in p
+        assert '套利 7 回合' in p and '已实现收益 1850.0 元' in p
+        assert '估值综合分位 83.5%' in p and '80% 以上为高估区' in p
+        assert '低估开网 → 震荡套利 → 高估收网' in p
+
+    def test_prompt_degrades_without_position(self):
+        from backend.services.ai_service import _build_exit_prompt
+        p = _build_exit_prompt({'plan': self._CTX['plan']})
+        assert '已无持仓' in p and 'None' not in p
+
+    def test_normalize_verdict_set(self):
+        out = AIService._normalize_exit({'verdict': '卖出', 'actions': ['a'] * 6})
+        assert out['verdict'] == '准备退出'  # 非法值归一
+        assert len(out['actions']) == 4
+        assert AIService._normalize_exit({'verdict': '建议收网'})['verdict'] == '建议收网'
+
+    def test_cache_by_plan_and_trade_date(self, svc, monkeypatch):
+        calls = _fake_chat_json(svc, monkeypatch,
+                                {'verdict': '建议收网', 'oneLine': '高估收尾',
+                                 'reasons': ['分位 83.5%'], 'actions': ['先停买单']})
+        r1 = svc.exit_review(self._CTX)
+        r2 = svc.exit_review(self._CTX)
+        assert r1['verdict'] == '建议收网' and r2 is r1
+        assert len(calls) == 1
+        # 估值数据日期变化后重新调用
+        svc.exit_review({**self._CTX,
+                         'index': {**self._CTX['index'], 'trade_date': '2026-08-06'}})
+        assert len(calls) == 2
+
+    def test_not_configured_raises(self, monkeypatch):
+        monkeypatch.setattr(settings, 'AI_API_KEY', '')
+        with pytest.raises(AINotConfigured):
+            AIService().exit_review(self._CTX)
+
+
 class TestChatRetry:
     def test_retries_without_response_format_on_400(self, svc, monkeypatch):
         import backend.services.ai_service as mod

@@ -1,4 +1,6 @@
 """网格核心计算测试：档位生成、压力测试、历史模拟"""
+import pytest
+
 from backend.services.grid_service import generate_levels, pressure_test
 from backend.services.backtest_service import simulate_grid
 
@@ -49,6 +51,105 @@ class TestGenerateLevels:
         for l in levels:
             assert l['retained_shares'] == 0
             assert l['sell_shares'] == l['shares']
+
+
+class TestSharesMode:
+    def test_shares_constant_amount_shrinks(self):
+        """等份额：每格份额恒定（整手），金额随价格下跌而减少"""
+        levels = generate_levels(base_price=1.0, grid_step=10, grid_count=4,
+                                 grid_mode='shares', shares_per_grid=10000)
+        shares = [l['shares'] for l in levels]
+        assert shares == [10000, 10000, 10000, 10000]
+        amounts = [l['amount'] for l in levels]
+        assert amounts[0] > amounts[1] > amounts[2] > amounts[3]
+        for l in levels:
+            assert l['amount'] == round(l['shares'] * l['buy_price'], 2)
+
+    def test_shares_mode_rounds_to_lot(self):
+        levels = generate_levels(base_price=2.5, grid_step=5, grid_count=3,
+                                 grid_mode='shares', shares_per_grid=10550)
+        for l in levels:
+            assert l['shares'] % 100 == 0
+        assert levels[0]['shares'] == 10500
+
+    def test_shares_mode_step_increase_grows_shares(self):
+        """等份额 + 逐格加码：加码的是份额"""
+        levels = generate_levels(base_price=1.0, grid_step=5, grid_count=3,
+                                 grid_mode='shares', shares_per_grid=10000,
+                                 step_increase=10)
+        shares = [l['shares'] for l in levels]
+        assert shares[0] < shares[1] < shares[2]
+
+    def test_shares_mode_expected_profit_declines(self):
+        """等份额每网利润逐格递减（与等金额的恒定利润相对）"""
+        levels = generate_levels(base_price=1.0, grid_step=10, grid_count=3,
+                                 grid_mode='shares', shares_per_grid=10000)
+        profits = [l['expected_profit'] for l in levels]
+        assert profits[0] > profits[1] > profits[2]
+
+    def test_pressure_test_uses_less_capital_than_amount_mode(self):
+        """同等首格投入下，等份额满格资金显著小于等金额"""
+        base, step, count = 1.0, 10, 8
+        a = pressure_test(generate_levels(base, step, count, amount_per_grid=10000), base)
+        s = pressure_test(generate_levels(base, step, count,
+                                          grid_mode='shares', shares_per_grid=10000), base)
+        assert s['total_capital'] < a['total_capital']
+        assert s['total_shares'] < a['total_shares']
+
+    def test_simulate_grid_shares_mode(self):
+        """等份额回测：买卖按档位正常撮合"""
+        r = simulate_grid(DOWN_UP, 5, 3, 0, mode='shares', shares=10000)
+        assert r['trades'] > 0
+        assert r['grid_ret'] != 0
+
+
+class TestSharesModePlan:
+    """等份额计划的持久化与参数校验（数据库由 conftest 隔离）"""
+
+    @pytest.fixture(autouse=True)
+    def _clean_db(self):
+        from backend.models.database import Base
+        from backend.utils.db import engine, init_db
+        init_db()
+        with engine.begin() as conn:
+            for table in reversed(Base.metadata.sorted_tables):
+                conn.execute(table.delete())
+
+    def _create(self, **kw):
+        from backend.services.grid_service import GridService
+        params = {'name': '份额网格', 'symbol': '512880', 'symbol_name': '证券ETF',
+                  'base_price': 1.0, 'grid_step': 5, 'grid_count': 5,
+                  'grid_mode': 'shares', 'shares_per_grid': 10000}
+        params.update(kw)
+        return GridService().create_plan(params)
+
+    def test_plan_persists_mode(self):
+        from backend.services.grid_service import GridService
+        p = self._create()
+        d = GridService().get_plan(p['id'])
+        assert d['grid_mode'] == 'shares'
+        assert d['shares_per_grid'] == 10000.0
+        assert d['amount_per_grid'] == 0.0
+        # 档位为等份额：各格份额一致、金额递减
+        shares = {l['shares'] for l in d['levels']}
+        assert shares == {10000}
+        assert d['levels'][0]['amount'] > d['levels'][-1]['amount']
+
+    def test_shares_mode_requires_lot(self):
+        with pytest.raises(ValueError, match='100'):
+            self._create(shares_per_grid=50)
+
+    def test_amount_mode_requires_amount(self):
+        with pytest.raises(ValueError, match='金额'):
+            self._create(grid_mode='amount', amount_per_grid=None)
+
+    def test_default_mode_is_amount(self):
+        d = self._create(grid_mode=None, shares_per_grid=None, amount_per_grid=8000)
+        # grid_mode=None 由 _resolve_mode 归一为 amount
+        from backend.services.grid_service import GridService
+        plan = GridService().get_plan(d['id'])
+        assert plan['grid_mode'] == 'amount'
+        assert plan['shares_per_grid'] is None
 
 
 class TestPressureTest:

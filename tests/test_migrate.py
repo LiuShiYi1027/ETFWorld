@@ -55,7 +55,8 @@ def test_old_db_reconciled_and_data_kept(tmp_path):
     migrate.run_migrations(eng)
 
     cols = _cols(eng, 'grid_plans')
-    for col in ('version', 'step_increase', 'profit_retention', 'note'):
+    for col in ('version', 'step_increase', 'profit_retention', 'note',
+                'grid_mode', 'shares_per_grid'):
         assert col in cols, f'老库缺列未补齐: {col}'
     assert _user_version(eng) == migrate.SCHEMA_VERSION
 

@@ -15,8 +15,10 @@ from typing import Dict, List, Optional
 
 from sqlalchemy import func
 
+from backend.config import settings
 from backend.models.database import FundFlowTable, GridPlanTable, TradeTable
 from backend.utils.db import get_session
+from backend.utils.matching import _strip_sw_suffix, match_index_name
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +75,12 @@ class PortfolioService:
             return round(_sum('deposit') - _sum('withdraw'), 2)
 
     # ---------- 三账户总览 ----------
-    def overview(self, prices: Optional[Dict[str, float]] = None) -> Dict:
+    def overview(self, prices: Optional[Dict[str, float]] = None,
+                 watchlist_rows: Optional[List[Dict]] = None) -> Dict:
         """
         组合总览。prices 为 {symbol: 现价}，由调用方注入（API 层负责取行情）；
         缺价的标的 market_value 为 None，总计按可得部分计算并标记 missing_prices。
+        watchlist_rows（[{name, category}]）注入时附带行业分布 industries 与集中度警告。
         """
         prices = prices or {}
         with get_session() as session:
@@ -157,7 +161,7 @@ class PortfolioService:
         cash = round(principal - total_cost, 2)
         safety_ratio = round(full_capital / principal, 4) if principal > 0 else None
 
-        return {
+        result = {
             'principal': principal,
             'cash': cash,
             'total_cost': total_cost,
@@ -174,6 +178,105 @@ class PortfolioService:
             'safety_warn': safety_ratio is not None and safety_ratio > 0.70,
             'missing_prices': sorted(missing_prices),
         }
+        if watchlist_rows:
+            industries, warn = self._industry_breakdown(core + grid, watchlist_rows)
+            result['industries'] = industries
+            result['concentration_warn'] = warn
+        return result
+
+    # ---------- 行业集中度 ----------
+    @staticmethod
+    def _industry_breakdown(positions: List[Dict],
+                            watchlist_rows: List[Dict]) -> (List[Dict], bool):
+        """持仓（底仓+网格，含留存）按市值（缺价按成本）聚合行业桶。
+
+        行业归属 = symbol_name 子串匹配监控指数：行业一/二级取指数名（去罗马后缀），
+        宽基/红利取 category；匹配不到进「其他」。
+        """
+        names = [r['name'] for r in watchlist_rows]
+        cat_map = {r['name']: r.get('category') for r in watchlist_rows}
+        buckets: Dict[str, float] = {}
+        total = 0.0
+        for pos in positions:
+            if pos['shares'] <= 0:
+                continue
+            v = pos['market_value'] if pos['market_value'] is not None else pos['cost']
+            idx = match_index_name(pos.get('symbol_name') or '', names)
+            if idx is None:
+                label = '其他'
+            else:
+                cat = cat_map.get(idx)
+                label = _strip_sw_suffix(idx) if cat in ('行业一级', '行业二级') \
+                    else (cat or '其他')
+            buckets[label] = buckets.get(label, 0.0) + v
+            total += v
+        if total <= 0:
+            return [], False
+        industries = sorted(
+            ({'name': k, 'market_value': round(v, 2), 'pct': round(v / total * 100, 1)}
+             for k, v in buckets.items()),
+            key=lambda b: -b['market_value'])
+        warn = industries[0]['pct'] > settings.CONCENTRATION_WARN_PCT
+        return industries, warn
+
+    # ---------- 资金分配建议 ----------
+    @staticmethod
+    def allocation_advice(ov: Dict, readiness_rows: List[Dict]) -> Dict:
+        """基于组合口径 + 雷达评分给出下一笔钱的去向建议（纯函数，依赖注入）。
+
+        返回 {level('warn'|'info'|'ok'), headline, detail, candidates[]}
+        """
+        principal = ov.get('principal') or 0
+        cash = ov.get('cash') or 0
+
+        if ov.get('safety_warn'):
+            return {'level': 'warn',
+                    'headline': '安全线超限：不宜新开网格',
+                    'detail': '满格资金已超过本金的 70%。优先考虑入金补足安全垫，'
+                              '或暂停/缩减高水位计划，再谈新开仓。',
+                    'candidates': []}
+
+        cash_ratio = cash / principal if principal > 0 else None
+        if cash_ratio is not None and cash_ratio < 0.10 and ov.get('total_cost'):
+            return {'level': 'warn',
+                    'headline': '现金水位偏低：留住备用金',
+                    'detail': f'现金仅占本金的 {cash_ratio * 100:.0f}%。网格靠现金吃饭，'
+                              '新增买入谨慎，优先保证在途计划的补网能力。',
+                    'candidates': []}
+
+        if cash_ratio is not None and cash_ratio > 0.30:
+            held_names = [p.get('symbol_name') or ''
+                          for p in ov['accounts']['core']['positions']
+                          + ov['accounts']['grid']['positions']
+                          if p['shares'] > 0]
+            candidates = []
+            for r in readiness_rows:
+                if r.get('level') != 'go':
+                    continue
+                short = _strip_sw_suffix(r.get('name') or '')
+                if any(short and short in n for n in held_names):
+                    continue  # 已持仓的品种不重复推荐
+                candidates.append({'ts_code': r.get('ts_code'), 'name': r.get('name'),
+                                   'score': r.get('score'),
+                                   'valuation_percentile': r.get('valuation_percentile')})
+            candidates.sort(key=lambda c: -(c['score'] or 0))
+            if candidates:
+                return {'level': 'info',
+                        'headline': f'现金占比 {cash_ratio * 100:.0f}%，可分批布局低估品种',
+                        'detail': f'参考雷达「适合开启」且未持仓的品种（按评分排序）；'
+                                  f'单只新计划满格资金建议 ≤ 本金的 '
+                                  f'{settings.MAX_PLAN_CAPITAL_PCT:.0f}%。',
+                        'candidates': candidates[:3]}
+            return {'level': 'ok',
+                    'headline': '现金充裕，但暂无低估候选',
+                    'detail': '监控池里没有「适合开启」的品种。现金等待也是策略的一部分，'
+                              '可关注机会页评分变化。',
+                    'candidates': []}
+
+        return {'level': 'ok',
+                'headline': '现金水位合理：按今日待办执行即可',
+                'detail': '现金占比处在 10%–30% 的常规区间，无需额外调仓。',
+                'candidates': []}
 
     @staticmethod
     def _flow_dict(f: FundFlowTable) -> Dict:

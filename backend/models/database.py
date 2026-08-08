@@ -79,6 +79,8 @@ class GridPlanTable(Base):
     symbol = Column(String(20), nullable=False, comment='标的代码(ETF)')
     symbol_name = Column(String(100), comment='标的名称')
     version = Column(String(10), default='1.0', comment='网格版本(1.0/2.0)')
+    grid_mode = Column(String(10), default='amount', comment='投入方式(amount等金额/shares等份额)')
+    shares_per_grid = Column(Numeric(16, 2), comment='每格份额(grid_mode=shares 时生效)')
 
     base_price = Column(Numeric(12, 4), nullable=False, comment='基准价(第一格买入价)')
     grid_step = Column(Numeric(8, 4), nullable=False, comment='网格大小(%)，如5表示5%')

@@ -20,6 +20,13 @@ function alertList() {
   for (const x of a.valuation) out.push({ kind: 'warnl', title: '估值越界', chip: x.name, chipCls: 'maybe',
     body: `${x.index_name} 估值分位 <b>${x.valuation_percentile}%</b>，已涨过 50% 警戒线。建议买入侧暂停，只卖不买。`,
     act: 'picks', plan: x });
+  // 退出引导：70% 偏高（只卖不买）/ 80% 高估（建议收网）
+  for (const x of (a.exit || [])) out.push({
+    kind: x.tier === 'exit' ? 'crit' : 'warnl',
+    title: x.tier === 'exit' ? '高估·建议收网' : '偏高·只卖不买',
+    chip: x.name, chipCls: x.tier === 'exit' ? 'no' : 'maybe',
+    body: `${x.index_name} 估值分位 <b>${x.valuation_percentile}%</b>。${x.verdict}。点进计划可「收网退出」或让 AI 做退出研判。`,
+    act: 'exit', plan: { plan_id: x.plan_id } });
   return out;
 }
 

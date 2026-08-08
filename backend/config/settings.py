@@ -141,3 +141,15 @@ VALUATION_ZONES = [
     (60, 80, '偏高', '#f97316'),
     (80, 100, '高估', '#ef4444'),
 ]
+
+# 退出引导阈值（综合分位 = PE/PB 分位平均，readiness 口径）。
+# 与买入侧 50% 否决线（readiness_service.VALUATION_VETO）构成 50/70/80 三层递进：
+# >50 暂停买入；≥70 只卖不买（对齐首页估值地图高估线）；≥80 建议收网（对齐上方 VALUATION_ZONES 高估线）
+EXIT_WARN_PCT = 70.0
+EXIT_EXIT_PCT = 80.0
+
+# 行业集中度警告线：单一行业占持仓总市值比例超过该值时提示
+CONCENTRATION_WARN_PCT = 40.0
+
+# 资金分配建议：单只新网格计划满格资金占本金的比例上限
+MAX_PLAN_CAPITAL_PCT = 15.0
