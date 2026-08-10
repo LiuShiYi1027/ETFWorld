@@ -200,7 +200,7 @@
             <td :style="{fontWeight:600,color:r.valuation_percentile<30?'var(--accent)':r.valuation_percentile>50?'var(--red-ink)':'inherit'}">{{ r.valuation_percentile != null ? r.valuation_percentile + '%' : '—' }}</td>
             <td>{{ r.volatility != null ? r.volatility + '%' : '—' }}</td>
             <td>{{ r.suggested_grid ? r.suggested_grid.grid_step + '%' : '—' }}</td>
-            <td style="font-weight:700;" :style="{color:r.level==='go'?'var(--accent)':r.level==='no'?'var(--red-ink)':r.level==='maybe'?'var(--amber-ink)':'var(--muted)'}">{{ r.score }}</td>
+            <td style="font-weight:700;" :style="{color:r.level==='go'?'var(--accent)':r.level==='no'?'var(--red-ink)':r.level==='maybe'?'var(--amber-ink)':'var(--muted)'}">{{ r.score >= 0 ? r.score : '—' }}</td>
             <td class="l"><span class="chip" :class="chipCls(r.level)">{{ r.verdict }}</span></td>
             <td class="l" v-if="wlManage" @click="$event.stopPropagation();"><button class="btn sm danger" @click="wlRemove(r.ts_code, r.name)">移出</button></td>
             <td class="l" v-else style="color:var(--faint);">→</td>

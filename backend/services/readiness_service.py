@@ -193,11 +193,34 @@ class ReadinessService:
         }
 
     def assess_all(self) -> List[Dict]:
-        """评估监控池内所有指数，按就绪度评分从高到低排序"""
+        """评估监控池内所有指数，按就绪度评分从高到低排序。
+
+        无估值数据的指数（新加入、历史回填中/失败）返回占位行而不是消失，
+        让监控池管理的结果在雷达表中立即可见。
+        """
         result = []
         for idx in _watchlist.list_indices():
             r = self.assess(idx['ts_code'])
-            if r:
-                result.append(r)
+            if r is None:
+                r = self._no_data_stub(idx)
+            result.append(r)
         result.sort(key=lambda x: x['score'], reverse=True)
         return result
+
+    @staticmethod
+    def _no_data_stub(idx: Dict) -> Dict:
+        """无数据占位行：score=-1 排在最后，前端展示为「数据回填中」"""
+        return {
+            'ts_code': idx['ts_code'], 'name': idx['name'],
+            'category': idx.get('category'),
+            'trade_date': None, 'close': None, 'pe_ttm': None, 'pb': None,
+            'pe_percentile': None, 'pb_percentile': None,
+            'valuation_percentile': None, 'volatility': None,
+            'volatility_is_proxy': False, 'percentiles': {},
+            'pe_median': None, 'pb_median': None,
+            'ret_20d': None, 'ret_60d': None, 'ret_120d': None,
+            'dist_52w_high': None,
+            'score': -1, 'verdict': '数据回填中', 'level': 'unknown',
+            'reasons': ['历史估值数据回填中，完成后自动出现评分'],
+            'suggested_grid': None,
+        }

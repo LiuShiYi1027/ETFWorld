@@ -26,6 +26,8 @@ async function wlAdd(item) {
     toast(`${item.name} 已加入监控池 · 历史数据回填中`);
     store.wlResults = store.wlResults.filter(x => x.ts_code !== item.ts_code);
     await loadWatchlist();
+    loadReadiness(true);  // 立即刷新：先出现「数据回填中」占位行
+    setTimeout(() => loadReadiness(true), 8000);  // 回填完成后换成真实评分
   } catch (e) { toast(e.message, 'warn'); }
   finally {
     const b = { ...store.wlBusy }; delete b[item.ts_code]; store.wlBusy = b;
