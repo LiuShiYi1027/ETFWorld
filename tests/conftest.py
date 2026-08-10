@@ -7,5 +7,7 @@ pytest 先加载 conftest 再加载测试模块，因此这里顶层设置 DATAB
 import os
 import tempfile
 
-_TEST_DB = os.path.join(tempfile.mkdtemp(prefix='etfw_test_'), 'test.db')
+_TEST_DIR = tempfile.mkdtemp(prefix='etfw_test_')
+_TEST_DB = os.path.join(_TEST_DIR, 'test.db')
 os.environ['DATABASE_URL'] = f'sqlite:///{_TEST_DB}'
+os.environ['ETFWORLD_DATA_DIR'] = _TEST_DIR  # 日志等文件也隔离到临时目录

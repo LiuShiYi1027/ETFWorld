@@ -47,6 +47,8 @@ DATA_DIR = app_data_dir()
 DB_PATH = DATA_DIR / 'etfworld.db'
 ENV_PATH = DATA_DIR / '.env'
 os.environ.setdefault('ETFWORLD_ENV_PATH', str(ENV_PATH))
+# 让后端（日志等）解析到同一个数据目录
+os.environ.setdefault('ETFWORLD_DATA_DIR', str(DATA_DIR))
 
 # 首次运行：用随包的已回填库做种子（之后用户的计划/交易都写到用户目录这份）
 SEED_DB = _base_dir() / 'etfworld.db'

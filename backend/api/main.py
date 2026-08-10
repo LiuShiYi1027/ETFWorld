@@ -34,6 +34,25 @@ from backend.config import settings
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# 日志落盘：与数据库同目录的 etfworld.log（滚动 5MB×3），桌面版双击运行时
+# 控制台不可见，排障全靠这个文件；目录不可写时静默降级为仅控制台
+from logging.handlers import RotatingFileHandler
+
+from backend.utils.paths import log_file_path
+
+LOG_FILE = None
+try:
+    _log_path = log_file_path()
+    _log_path.parent.mkdir(parents=True, exist_ok=True)
+    _fh = RotatingFileHandler(_log_path, maxBytes=5 * 1024 * 1024,
+                              backupCount=2, encoding='utf-8')
+    _fh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logging.getLogger().addHandler(_fh)
+    LOG_FILE = str(_log_path)
+except OSError:  # noqa: BLE001
+    pass
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title='ETFWorld', description='基于E大投资理念的网格策略辅助工具')
@@ -182,6 +201,7 @@ def settings_get():
         'ai_api_url': settings.AI_API_URL,
         'ai_model': settings.AI_MODEL,
         'has_data': has_data,
+        'log_file': LOG_FILE,
     }
 
 

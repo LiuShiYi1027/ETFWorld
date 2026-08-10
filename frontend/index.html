@@ -868,6 +868,7 @@
         <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" :checked="notifyEnabled" @change="toggleNotify($event.target.checked)"> 有待办时系统通知（每日一次）</label>
       </div>
       <div class="note" style="padding:14px 0 0;">启动时若检测到数据落后会自动增量更新；密钥只保存在本机配置，不会通过接口回传完整值。</div>
+      <div class="note" style="padding:6px 0 0;" v-if="settings && settings.log_file">日志文件：<span style="font-family:monospace;user-select:all;">{{ settings.log_file }}</span>（遇到问题反馈时请附上）</div>
     </div>
     <div class="modal-foot"><button class="btn" @click="closeModal()">取消</button><button class="btn primary" @click="saveSettings()">保存设置</button></div>
   </div>
