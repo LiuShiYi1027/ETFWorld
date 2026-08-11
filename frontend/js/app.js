@@ -7,6 +7,7 @@ import { plannerActions } from './pages/planner.js';
 import { plansActions } from './pages/plans.js';
 import { portfolioActions } from './pages/portfolio.js';
 import { reviewActions } from './pages/review.js';
+import { dcaActions } from './pages/dca.js';
 import { settingsActions } from './pages/settings.js';
 import { onboardActions } from './pages/onboarding.js';
 import { picksDiscoveryActions } from './pages/discovery.js';
@@ -16,7 +17,7 @@ const app = Object.assign(
   { switchTab, toast, openPlan, loadReadiness, dismissUpdate },
   homeActions, todayActions, picksActions, plannerActions,
   reviewActions, plansActions, portfolioActions, settingsActions,
-  onboardActions, picksDiscoveryActions,
+  onboardActions, picksDiscoveryActions, dcaActions,
   {
     // 模板小工具
     fmt(v, d = 3) {

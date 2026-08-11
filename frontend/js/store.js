@@ -13,6 +13,7 @@ export const store = reactive({
   plans: [],
   detail: null, detailTrades: [], detailLoading: false,
   portfolioData: null, fundFlows: [],
+  dcaPlans: [],
   reviewData: null,
   weekly: null, weeklyLoading: false,
   ai: { enabled: false, model: null },
@@ -56,6 +57,8 @@ export const store = reactive({
   dataStatus: null,
   notifyEnabled: true,
   flowForm: null, settingsForm: null,
+  dcaForm: null, dcaDetail: null, dcaDetailTrades: [],
+  dcaBt: null, dcaBtLoading: false, dcaLookback: 750,
   // 首启向导
   obOpen: false, obStep: 1,
   obToken: '', obTestStat: '未测试', obTesting: false, obTokenOk: false,
@@ -83,7 +86,7 @@ export function switchTab(name) {
     if (!store.reviewData) loadReview();
   }
   if (name === 'picks') { loadReadiness(); loadWatchlist(); }
-  if (name === 'plans') { loadPlans(); loadReadiness(); }
+  if (name === 'plans') { loadPlans(); loadDcaPlans(); loadReadiness(); }
   if (name === 'portfolio') loadPortfolio();
   if (name === 'review') loadReview();
   if (name === 'planner') loadReadiness();
@@ -137,6 +140,11 @@ function maybeNotifyTodos() {
 
 export async function loadPlans() {
   store.plans = await API.get('/api/grid/plans');
+}
+
+export async function loadDcaPlans() {
+  try { store.dcaPlans = await API.get('/api/dca/plans'); }
+  catch { store.dcaPlans = []; }
 }
 
 export async function loadPlanDetail(id) {
@@ -223,6 +231,7 @@ export function boot() {
   loadReadiness();
   loadToday();
   loadPlans();
+  loadDcaPlans();
   loadPortfolio();
   // 首启检测：未配置数据源或无数据且未曾完成向导 → 进入首启向导
   API.get('/api/settings').then(s => {

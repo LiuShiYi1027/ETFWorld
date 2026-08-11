@@ -165,3 +165,44 @@ class TestExitAlerts:
         _add_plan(grid, status='closed')
         r = svc.today(prices={'512880': 1.10})
         assert r['alerts']['exit'] == []
+
+
+class TestDcaTodos:
+    def _svc_with_dca(self, readiness_rows=()):
+        from backend.services.dca_service import DcaService
+        grid, trade = GridService(), TradeService()
+        dca = DcaService(trade)
+        svc = TodayService(grid, trade, _FakeEtf(),
+                           _FakeReadiness(list(readiness_rows)),
+                           PortfolioService(), dca)
+        return grid, trade, dca, svc
+
+    def test_dca_todo_appears_in_today(self):
+        rows = [{'name': '证券Ⅱ', 'valuation_percentile': 15.0}]
+        grid, trade, dca, svc = self._svc_with_dca(rows)
+        dca.create_plan({'name': '证券定投', 'symbol': '512880',
+                         'symbol_name': '证券ETF', 'base_amount': 1000,
+                         'frequency': 'weekly'})
+        r = svc.today(prices={'512880': 1.10})
+        assert len(r['dca_todos']) == 1
+        t = r['dca_todos'][0]
+        assert t['multiplier'] == 2.0 and t['amount'] == 2000  # 15% → 低估加倍
+
+    def test_dca_todo_gone_after_invested(self):
+        rows = [{'name': '证券Ⅱ', 'valuation_percentile': 15.0}]
+        from datetime import date
+        grid, trade, dca, svc = self._svc_with_dca(rows)
+        p = dca.create_plan({'name': '证券定投', 'symbol': '512880',
+                             'symbol_name': '证券ETF', 'base_amount': 1000,
+                             'frequency': 'weekly'})
+        trade.add_trade({'symbol': '512880', 'symbol_name': '证券ETF',
+                         'trade_date': date.today().isoformat(), 'direction': 'buy',
+                         'price': 1.0, 'shares': 2000, 'dca_plan_id': p['id']})
+        r = svc.today(prices={'512880': 1.10})
+        assert r['dca_todos'] == []
+
+    def test_no_dca_service_backward_compatible(self):
+        grid, _, svc = _make_today()  # 不注入 dca_service
+        _add_plan(grid)
+        r = svc.today(prices={'512880': 1.10})
+        assert r['dca_todos'] == []

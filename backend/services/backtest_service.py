@@ -13,6 +13,7 @@
 仅用于理解策略特性，不代表未来收益。
 """
 import logging
+from datetime import date
 from typing import Dict, List, Optional
 
 from backend.services.grid_service import generate_levels
@@ -241,3 +242,105 @@ class BacktestService:
         return {'cells': cells, 'best': best, 'best_active': best_active,
                 'low_activity_trades': LOW_ACTIVITY_TRADES,
                 'steps': steps, 'counts': counts, 'n': len(prices)}
+
+
+# ---------- 定投回测（估值增强 vs 普通定投对比） ----------
+
+def _trailing_pctile(values: List[float], end: int, window: int = 1250) -> Optional[float]:
+    """时点分位：在截至 end 的回看窗口（默认约 5 年=1250 个交易日）内，
+    当前值 ≤ 历史值的比例。样本不足 30 条返回 None（与估值分位口径一致）。"""
+    seg = [v for v in values[max(0, end - window + 1):end + 1] if v is not None and v > 0]
+    if len(seg) < 30:
+        return None
+    cur = values[end]
+    if cur is None or cur <= 0:
+        return None
+    return round(sum(1 for v in seg if v <= cur) / len(seg) * 100, 2)
+
+
+def _dca_period_key(dstr: str, frequency: str):
+    """交易日 'YYYYMMDD' 的定投周期：weekly=ISO(年,周)，monthly=(年,月)"""
+    if frequency == 'monthly':
+        return (int(dstr[:4]), int(dstr[4:6]))
+    d = date(int(dstr[:4]), int(dstr[4:6]), int(dstr[6:8]))
+    iso = d.isocalendar()
+    return (iso[0], iso[1])
+
+
+def simulate_dca(bars: List[tuple], valuations: List[tuple],
+                 base_amount: float, frequency: str = 'weekly',
+                 enhanced: bool = True) -> Dict:
+    """定投回测：每个定投周期首日按收盘价买入。
+
+    Args:
+        bars: ETF 日线 [(date'YYYYMMDD', close)] 升序
+        valuations: 关联指数估值 [(date'YYYYMMDD', pe_ttm, pb)] 升序；空列表时
+            enhanced 退化为每期 1×（与普通定投同）
+        base_amount: 每期基准金额
+        frequency: weekly / monthly
+        enhanced: True=按时点分位乘倍数（DCA_MULTIPLIERS），False=普通定投（恒 1×）
+
+    Returns:
+        dates/cost/value 三条等长序列 + 汇总统计。份额按 100 股整手取整。
+    """
+    from bisect import bisect_right
+
+    from backend.config import settings
+
+    if not bars:
+        return {'dates': [], 'cost': [], 'value': [], 'total_invested': 0,
+                'final_value': 0, 'return_pct': 0, 'periods': 0,
+                'periods_invested': 0, 'paused_periods': 0}
+
+    val_dates = [v[0] for v in valuations]
+    pe_series = [v[1] for v in valuations]
+    pb_series = [v[2] for v in valuations]
+
+    invested = 0.0
+    shares = 0.0
+    periods, invested_periods, paused_periods = set(), set(), set()
+    dates, cost_line, value_line = [], [], []
+
+    for dstr, close in bars:
+        key = _dca_period_key(dstr, frequency)
+        if key not in periods:
+            # 每个周期的首个交易日：决定本期投多少（用当日前最近一条估值的时点分位）
+            periods.add(key)
+            mult = 1.0
+            if enhanced and valuations:
+                i = bisect_right(val_dates, dstr) - 1
+                if i >= 0:
+                    pcts = [p for p in (_trailing_pctile(pe_series, i),
+                                        _trailing_pctile(pb_series, i))
+                            if p is not None]
+                    pct = sum(pcts) / len(pcts) if pcts else None
+                else:
+                    pct = None
+                if pct is not None and pct >= settings.DCA_PROFIT_TAKE_PCT:
+                    mult = 0.0
+                elif pct is not None:
+                    mult = next((m for lo, hi, m, _ in settings.DCA_MULTIPLIERS
+                                 if lo <= pct < hi), 1.0)
+            amount = base_amount * mult
+            lot = int(amount / close / 100) * 100 if close > 0 else 0
+            if lot > 0:
+                shares += lot
+                invested += lot * close
+                invested_periods.add(key)
+            else:
+                paused_periods.add(key)
+        dates.append(dstr)
+        cost_line.append(round(invested, 2))
+        value_line.append(round(shares * close, 2))
+
+    total = round(invested, 2)
+    final = round(shares * bars[-1][1], 2)
+    return {
+        'dates': dates, 'cost': cost_line, 'value': value_line,
+        'total_invested': total,
+        'final_value': final,
+        'return_pct': round((final / total - 1) * 100, 2) if total > 0 else 0,
+        'periods': len(periods),
+        'periods_invested': len(invested_periods),
+        'paused_periods': len(paused_periods),
+    }

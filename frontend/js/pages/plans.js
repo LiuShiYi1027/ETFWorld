@@ -1,6 +1,6 @@
 // 计划：列表 + 详情（棋盘/标尺/破网处置/AI 体检/成交录入）
 import * as API from '../api.js';
-import { store, toast, loadPlans, loadPlanDetail, openPlan, loadToday } from '../store.js';
+import { store, toast, loadPlans, loadPlanDetail, openPlan, loadToday, loadDcaPlans } from '../store.js';
 
 const CELL_LABEL = { wait: '待买', hold: '持有', sold: '已卖', keep: '留存' };
 
@@ -161,6 +161,7 @@ export const plansActions = {
         trade_date: f.trade_date, direction: f.direction,
         price: parseFloat(f.price), shares: parseFloat(f.shares),
         fee: parseFloat(f.fee || 0), note: f.note || undefined,
+        dca_plan_id: f.dca_plan_id || undefined,
       });
       store.modal = null;
       toast(t.grid_level ? `已记录并匹配到 <b>G${t.grid_level}</b>` : '已记录（未匹配到档位）');
@@ -168,7 +169,15 @@ export const plansActions = {
       if (f.note && String(f.note).startsWith('待办成交')) {
         store.dismissedTodos[`${f.plan_id}-${f.direction}-${t.grid_level || ''}`] = true;
       }
-      await loadPlanDetail(f.plan_id); loadToday();
+      // 定投待办成交：消掉本期定投待办并刷新定投计划
+      if (f.dca_plan_id) {
+        if (f.dca_period_key) {
+          store.dismissedTodos[`dca-${f.dca_plan_id}-${f.dca_period_key}`] = true;
+        }
+        loadDcaPlans();
+      }
+      if (f.plan_id) await loadPlanDetail(f.plan_id);
+      loadToday();
     } catch (e) { toast(e.message, 'warn'); }
   },
   async delTrade(t, btn) {

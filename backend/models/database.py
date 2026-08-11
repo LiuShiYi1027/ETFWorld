@@ -114,6 +114,7 @@ class TradeTable(Base):
     shares = Column(Numeric(16, 2), nullable=False, comment='成交份额')
     fee = Column(Numeric(12, 2), default=0, comment='手续费')
     grid_level = Column(Integer, comment='对应网格档位')
+    dca_plan_id = Column(Integer, ForeignKey('dca_plans.id'), nullable=True, comment='关联定投计划')
     note = Column(Text, comment='备注')
 
     created_at = Column(DateTime, default=datetime.now)
@@ -144,6 +145,23 @@ class WatchlistTable(Base):
     category = Column(String(50), comment='分类(宽基/行业一级/行业二级等)')
     source = Column(String(20), default='index', comment='数据源(index 宽基/sw 申万)')
     created_at = Column(DateTime, default=datetime.now)
+
+
+class DcaPlanTable(Base):
+    """定投计划表（估值增强定投：低估多投、正常少投、高估停投）"""
+    __tablename__ = 'dca_plans'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False, comment='计划名称')
+    symbol = Column(String(20), nullable=False, comment='标的代码(ETF)')
+    symbol_name = Column(String(100), comment='标的名称')
+    base_amount = Column(Numeric(14, 2), nullable=False, comment='基准金额(每期)')
+    frequency = Column(String(10), nullable=False, default='weekly', comment='频率(weekly/monthly)')
+    status = Column(String(20), default='active', comment='状态(active/paused/closed)')
+    note = Column(Text, comment='备注')
+
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
 class UpdateLogTable(Base):

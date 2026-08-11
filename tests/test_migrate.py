@@ -49,6 +49,15 @@ def _create_v1_grid_plans(eng):
 def test_old_db_reconciled_and_data_kept(tmp_path):
     eng = _make_engine(tmp_path / 'old.db')
     _create_v1_grid_plans(eng)
+    with eng.begin() as c:  # 老库 trades 表（缺 fee/grid_level/note/dca_plan_id）
+        c.execute(text('''
+            CREATE TABLE trades (
+                id INTEGER PRIMARY KEY, plan_id INTEGER, symbol VARCHAR(20) NOT NULL,
+                symbol_name VARCHAR(100), trade_date DATE NOT NULL,
+                direction VARCHAR(10) NOT NULL, price NUMERIC(12, 4) NOT NULL,
+                shares NUMERIC(16, 2) NOT NULL, created_at DATETIME
+            )
+        '''))
     assert 'profit_retention' not in _cols(eng, 'grid_plans')
 
     Base.metadata.create_all(eng)  # 老表不会被改，只补新表
@@ -58,6 +67,8 @@ def test_old_db_reconciled_and_data_kept(tmp_path):
     for col in ('version', 'step_increase', 'profit_retention', 'note',
                 'grid_mode', 'shares_per_grid'):
         assert col in cols, f'老库缺列未补齐: {col}'
+    for col in ('fee', 'grid_level', 'note', 'dca_plan_id'):
+        assert col in _cols(eng, 'trades'), f'老库 trades 缺列未补齐: {col}'
     assert _user_version(eng) == migrate.SCHEMA_VERSION
 
     with eng.connect() as c:  # 老数据还在

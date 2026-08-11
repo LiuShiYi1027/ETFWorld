@@ -58,6 +58,7 @@ class ETFService:
     def __init__(self):
         self._basic: Optional[List[Dict]] = None
         self._amount_cache: Optional[Dict[str, Dict]] = None
+        self._adj_cache: Dict[str, Optional[Dict[str, float]]] = {}
 
     def _load_basic(self, force: bool = False) -> List[Dict]:
         """加载全市场 ETF 基础信息（缓存到本地）"""
@@ -181,7 +182,12 @@ class ETFService:
         return None
 
     def daily_bars(self, symbol: str, days: int = 250) -> List[tuple]:
-        """取某 ETF 近 days 个交易日的 (trade_date, close) 对（日期升序）。无数据返回 []。"""
+        """取某 ETF 近 days 个交易日的 (trade_date, close) 对（日期升序，前复权）。
+
+        用 fund_adj 复权因子把历史价格折算到当前份额口径：分红除权与份额拆分
+        不会被误判为暴跌（拆分日价格减半、份额翻倍，账户价值不变）。
+        无数据返回 []；取不到因子时降级为不复权。
+        """
         code = self._resolve_ts_code(symbol)
         if not code:
             return []
@@ -202,7 +208,42 @@ class ETFService:
                 for _, r in df.iterrows()
                 if r.get('close') == r.get('close') and r.get('close')]
         rows.sort(key=lambda x: x[0])
+        rows = self._apply_adj(rows, self._adj_factors(code))
         return rows[-days:]
+
+    def _adj_factors(self, ts_code: str) -> Optional[Dict[str, float]]:
+        """取基金复权因子（fund_adj，全历史，进程内缓存）。失败/无数据返回 None"""
+        if ts_code in self._adj_cache:
+            return self._adj_cache[ts_code]
+        pro = get_pro()
+        factors = None
+        if pro is not None:
+            try:
+                df = pro.fund_adj(ts_code=ts_code)
+                if df is not None and not df.empty:
+                    factors = {str(r['trade_date']): float(r['adj_factor'])
+                               for _, r in df.iterrows()
+                               if r.get('adj_factor') == r.get('adj_factor') and r.get('adj_factor')}
+            except Exception as e:  # noqa: BLE001 — 取不到因子时降级为不复权
+                logger.warning('fund_adj 失败 %s: %s（按不复权处理）', ts_code, e)
+        self._adj_cache[ts_code] = factors
+        return factors
+
+    @staticmethod
+    def _apply_adj(rows: List[tuple], factors: Optional[Dict[str, float]]) -> List[tuple]:
+        """前复权：close × 当日因子 ÷ 最新因子。因子按 asof 匹配（≤当日最近一条）"""
+        if not rows or not factors:
+            return rows
+        fdates = sorted(factors)
+        latest = factors[fdates[-1]]
+        if latest <= 0:
+            return rows
+        from bisect import bisect_right
+
+        def f_at(d):
+            i = bisect_right(fdates, d) - 1
+            return factors[fdates[i]] if i >= 0 else factors[fdates[0]]
+        return [(d, round(c * f_at(d) / latest, 4)) for d, c in rows]
 
     def daily_closes(self, symbol: str, days: int = 250) -> List[float]:
         """取某 ETF 近 days 个交易日的收盘价（升序）。无 Tushare 或无数据返回 []。"""

@@ -116,11 +116,26 @@ def scenario_planner(cdp):
     time.sleep(16)
 
 
+def scenario_dca(cdp):
+    """计划页：点开第一个定投计划详情，等回测渲染"""
+    print('打开定投详情:', cdp.ev("""(() => {
+      const sec = document.querySelector('section.page.on');
+      const rows = [...sec.querySelectorAll('table tbody tr')];
+      const r = rows.find(x => x.textContent.includes('定投'));
+      if (!r) return 'no-dca-row';
+      r.click(); return 'clicked';
+    })()"""))
+    print('等待回测渲染…')
+    time.sleep(18)
+
+
 def main():
     cdp = CDP(connect())
     time.sleep(2.5)
     if SCENARIO == 'planner':
         scenario_planner(cdp)
+    elif SCENARIO == 'dca':
+        scenario_dca(cdp)
     shot = cdp.cmd('Page.captureScreenshot', {'format': 'png'})
     with open(OUT, 'wb') as f:
         f.write(base64.b64decode(shot['data']))

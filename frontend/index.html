@@ -133,6 +133,26 @@
     <div class="note">网格不自动下单，待办只负责提醒，纪律由你执行。每行：方向 · 标的 · 档位价 × 份额 = 金额 · 所属计划 · 距现价。</div>
   </div>
 
+  <div class="card" v-if="dcaList().length">
+    <div class="card-h"><div class="t">定投</div><div class="d">估值增强：低估多投 · 正常少投 · 高估停投 · <b>{{ dcaList().length }} 条</b></div></div>
+    <div class="card-b" style="padding:8px 0 10px;">
+      <div class="row" v-for="t in dcaList()" :key="t.dca_plan_id+t.period_key">
+        <span class="dir buy"><i></i></span>
+        <div style="flex:1;min-width:0;">
+          <div class="nm">{{ t.name }} <span class="chip" :class="dcaChip(t).cls">{{ dcaChip(t).text }}</span>
+            <span style="color:var(--faint);font-size:12px;">{{ t.symbol_name || t.symbol }} · {{ t.period_label }}</span></div>
+          <div class="sub">{{ t.label }}<template v-if="t.action==='invest'"> · 基准 {{ fmt(t.base_amount,0) }} → 建议 <b>{{ fmt(t.amount,0) }}</b> 元</template></div>
+        </div>
+        <div style="white-space:nowrap;" v-if="t.action==='invest'">
+          <button class="btn sm" style="color:var(--accent);border-color:#86EFAC;" @click="completeDca(t)">已投</button>
+          <button class="btn sm" @click="dismissDca(t)">稍后</button>
+        </div>
+        <div v-else><button class="btn sm" @click="dismissDca(t)">知道了</button></div>
+      </div>
+    </div>
+    <div class="note">定投不自动扣款，待办只负责提醒。金额 = 基准 × 分位倍数；停投与止盈提示只提醒、不代操作。</div>
+  </div>
+
   <div class="alerts" v-if="alertList().length">
     <div class="alert" v-for="al in alertList()" :key="al.title+al.chip" :class="al.kind">
       <div class="at">{{ al.title }}<span class="chip" :class="al.chipCls">{{ al.chip }}</span></div>
@@ -469,7 +489,8 @@
     <h1>计划</h1>
     <p>计划 = 参数 + 执行状态 + 成交记录的归档单元。破网计划需人工处置，不会自动恢复。</p>
     <div class="spacer"></div>
-    <button class="btn primary" @click="switchTab('planner')">+ 新建计划</button>
+    <button class="btn" @click="openDcaCreate()">+ 新建定投计划</button>
+    <button class="btn primary" @click="switchTab('planner')">+ 新建网格计划</button>
   </div>
   <div class="card">
     <div class="card-h"><div class="t">计划列表</div><div class="d">共 {{ plans.length }} 个</div></div>
@@ -494,6 +515,110 @@
       </table>
     </div>
     <div class="empty-note" v-else>还没有网格计划 · 去「规划」创建第一张网格</div>
+  </div>
+
+  <!-- 定投计划 -->
+  <div class="card">
+    <div class="card-h"><div class="t">定投计划</div><div class="d">估值增强：低估多投 · 高估停投 · 共 {{ dcaRows().length }} 个</div></div>
+    <div class="card-b" style="padding-left:10px;padding-right:10px;" v-if="dcaRows().length">
+      <table>
+        <thead><tr><th class="l">名称</th><th class="l">标的</th><th>频率</th><th>基准金额</th><th class="l">当前建议</th><th class="l">状态</th><th class="l">操作</th></tr></thead>
+        <tbody>
+          <tr class="clk" v-for="p in dcaRows()" :key="p.id" @click="openDcaDetail(p)">
+            <td class="l"><span class="sym">{{ p.name }}</span></td>
+            <td class="l">{{ p.symbol_name || '' }} <span style="color:var(--faint);font-size:11px;">{{ p.symbol }}</span></td>
+            <td>{{ dcaFreqLabel(p) }}</td>
+            <td>{{ fmt(p.base_amount,0) }}</td>
+            <td class="l"><span class="chip" :class="dcaSugChip(p).cls">{{ dcaSugChip(p).text }}</span></td>
+            <td class="l"><span class="chip" :class="statusChip[p.status]||'wait'">{{ p.status.toUpperCase() }}</span></td>
+            <td class="l" @click="$event.stopPropagation();">
+              <button class="btn sm" @click="openDcaDetail(p)">查看</button>
+              <button class="btn sm" v-if="p.status==='active'" @click="dcaSetStatus(p,'paused')">暂停</button>
+              <button class="btn sm" v-if="p.status==='paused'" @click="dcaSetStatus(p,'active')">恢复</button>
+              <button class="btn sm danger" @click="delDcaPlan(p,$event.currentTarget)">删除</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="empty-note" v-else>还没有定投计划 · 点右上角「+ 新建定投计划」开始低估定投</div>
+  </div>
+
+  <!-- 定投详情 -->
+  <div id="dca-detail" v-if="dcaDetail">
+    <div class="card">
+      <div class="card-h">
+        <div class="t">定投详情 · {{ dcaDetail.name }} <span class="chip" :class="statusChip[dcaDetail.status]||'wait'" style="margin-left:6px;">{{ dcaDetail.status.toUpperCase() }}</span></div>
+        <div class="d">{{ dcaDetail.symbol_name || dcaDetail.symbol }} · {{ dcaFreqLabel(dcaDetail) }}定投 · 基准 {{ fmt(dcaDetail.base_amount,0) }} 元</div>
+      </div>
+      <div class="card-b">
+        <div class="kpis flat" style="grid-template-columns:repeat(4,1fr);margin-bottom:10px;" v-if="dcaDetail.summary">
+          <div class="kpi"><div class="k">累计投入</div><div class="v sm">{{ fmt(dcaDetail.summary.total_invested,0) }}</div></div>
+          <div class="kpi"><div class="k">已投期数</div><div class="v sm good">{{ dcaDetail.summary.periods_done }}</div></div>
+          <div class="kpi"><div class="k">缺席期数</div><div class="v sm" :class="{bad:dcaDetail.summary.periods_missed>0}">{{ dcaDetail.summary.periods_missed }}</div></div>
+          <div class="kpi"><div class="k">当前建议</div><div class="v sm">{{ dcaSugChip(dcaDetail).text }}</div></div>
+        </div>
+        <div class="btnrow">
+          <button class="btn" v-if="dcaDetail.status==='active'" @click="dcaSetStatus(dcaDetail,'paused');closeDcaDetail()">暂停</button>
+          <button class="btn primary" v-if="dcaDetail.status==='paused'" @click="dcaSetStatus(dcaDetail,'active');closeDcaDetail()">恢复</button>
+          <button class="btn danger" v-if="dcaDetail.status!=='closed'" @click="dcaSetStatus(dcaDetail,'closed');closeDcaDetail()">结束定投</button>
+          <button class="btn" @click="closeDcaDetail()">收起</button>
+        </div>
+
+        <!-- 定投回测：普通 vs 估值增强 -->
+        <div style="margin-top:16px;border-top:1px solid var(--line);padding-top:14px;">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
+            <div style="font-size:12px;font-weight:700;color:var(--muted);">回测 · 普通定投 vs 估值增强</div>
+            <div class="seg">
+              <button :class="{on:dcaLookback===250}" @click="runDcaBacktest(250)">近1年</button>
+              <button :class="{on:dcaLookback===750}" @click="runDcaBacktest(750)">近3年</button>
+              <button :class="{on:dcaLookback===1250}" @click="runDcaBacktest(1250)">近5年</button>
+            </div>
+            <span style="font-size:12px;color:var(--faint);" v-if="dcaBt && dcaBt.index_name">按 {{ dcaBt.index_name }} 的时点分位调整每期金额</span>
+            <span style="font-size:12px;color:var(--amber-ink);" v-if="dcaBt && !dcaBt.has_valuation">未关联监控指数 · 增强与普通一致</span>
+          </div>
+          <div class="ai-loading" v-if="dcaBtLoading">回测计算中…</div>
+          <template v-if="dcaBt && dcaBt.n">
+            <div id="dca-bt" style="height:230px;"></div>
+            <table style="margin-top:8px;">
+              <thead><tr><th class="l">口径</th><th>累计投入</th><th>期末市值</th><th>收益率</th><th>已投/总期数</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td class="l">普通定投</td>
+                  <td>{{ fmt(dcaBt.plain.total_invested,0) }}</td>
+                  <td>{{ fmt(dcaBt.plain.final_value,0) }}</td>
+                  <td :style="{color:dcaBt.plain.return_pct>=0?'var(--accent)':'var(--red-ink)',fontWeight:600}">{{ dcaBt.plain.return_pct>=0?'+':'' }}{{ dcaBt.plain.return_pct }}%</td>
+                  <td>{{ dcaBt.plain.periods_invested }}/{{ dcaBt.plain.periods }}</td>
+                </tr>
+                <tr>
+                  <td class="l"><b>估值增强定投</b></td>
+                  <td>{{ fmt(dcaBt.enhanced.total_invested,0) }}</td>
+                  <td>{{ fmt(dcaBt.enhanced.final_value,0) }}</td>
+                  <td :style="{color:dcaBt.enhanced.return_pct>=0?'var(--accent)':'var(--red-ink)',fontWeight:700}">{{ dcaBt.enhanced.return_pct>=0?'+':'' }}{{ dcaBt.enhanced.return_pct }}%</td>
+                  <td>{{ dcaBt.enhanced.periods_invested }}/{{ dcaBt.enhanced.periods }}（停投 {{ dcaBt.enhanced.paused_periods }} 期）</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="note" style="padding:8px 0 0;">每期首个交易日按收盘价买入，份额整手取整；增强口径按当日往前 5 年的 PE/PB 时点分位调整金额。未计手续费，历史不代表未来。</div>
+          </template>
+        </div>
+      </div>
+      <div class="card-h" style="border-top:1px solid var(--line);padding-top:14px;"><div class="t">成交记录</div><div class="d">{{ dcaDetailTrades.length }} 笔</div></div>
+      <div class="card-b" style="padding-left:10px;padding-right:10px;" v-if="dcaDetailTrades.length">
+        <table>
+          <thead><tr><th class="l">日期</th><th class="l">方向</th><th>价格</th><th>份额</th><th>金额</th><th class="l">备注</th></tr></thead>
+          <tbody>
+            <tr v-for="t in dcaDetailTrades" :key="t.id">
+              <td class="l">{{ t.trade_date }}</td>
+              <td class="l"><span class="dir" :class="t.direction==='buy'?'buy':'sell'"><i></i>{{ t.direction==='buy'?'买入':'卖出' }}</span></td>
+              <td>{{ t.price }}</td><td>{{ t.shares.toLocaleString('zh-CN') }}</td><td>{{ fmt(t.amount,0) }}</td>
+              <td class="l" style="color:var(--muted);">{{ t.note || '' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="empty-note" v-else>还没有定投成交 · 今天页出现定投待办后点「已投」记录</div>
+    </div>
   </div>
 
   <!-- 计划详情 -->
@@ -812,6 +937,32 @@
 
 <!-- 弹层：资金流水 / 成交 / 设置 -->
 <div id="modal" :class="{show:!!modal}" @click="if($event.target===$event.currentTarget)closeModal()">
+  <div class="modal-card" v-if="modal==='dca' && dcaForm">
+    <div class="modal-head"><div class="t">新建定投计划</div><button class="dr-x" @click="closeModal()" aria-label="关闭">✕</button></div>
+    <div class="modal-body">
+      <div class="field"><label>搜索 ETF（名称 / 代码）</label><input v-model="dcaForm.query" @input="dcaSearch()" placeholder="如 沪深300 / 510300"></div>
+      <div v-if="dcaForm.results.length" style="margin-top:8px;border:1px solid var(--line);border-radius:8px;overflow:hidden;">
+        <div class="row" v-for="e in dcaForm.results" :key="e.ts_code" @click="dcaPick(e)" style="padding:9px 12px;">
+          <div style="flex:1;min-width:0;"><div class="nm" style="font-size:13px;">{{ e.name }}</div>
+            <div class="sub">{{ e.ts_code }}</div></div>
+          <span style="color:var(--faint);">→</span>
+        </div>
+      </div>
+      <div class="formgrid" style="margin-top:10px;">
+        <div class="field"><label>计划名称</label><input v-model="dcaForm.name" placeholder="自动按标的命名"></div>
+        <div class="field"><label>频率</label>
+          <div class="seg" style="display:flex;">
+            <button :class="{on:dcaForm.frequency==='weekly'}" @click="dcaForm.frequency='weekly'" style="flex:1;">每周</button>
+            <button :class="{on:dcaForm.frequency==='monthly'}" @click="dcaForm.frequency='monthly'" style="flex:1;">每月</button>
+          </div>
+        </div>
+        <div class="field"><label>基准金额（元/期）</label><input v-model="dcaForm.base_amount" type="number" step="100" min="0"></div>
+      </div>
+      <div class="note" style="padding:12px 0 0;">实际每期金额 = 基准 × 分位倍数：&lt;20% 投 2× · 20–40% 投 1.5× · 40–60% 投 1× · 60–80% 投 0.5× · ≥80% 停投 · ≥90% 提示止盈。持仓计入组合层底仓。</div>
+    </div>
+    <div class="modal-foot"><button class="btn" @click="closeModal()">取消</button><button class="btn primary" @click="saveDcaPlan()">创建计划</button></div>
+  </div>
+
   <div class="modal-card" v-if="modal==='fundflow'">
     <div class="modal-head"><div class="t">记一笔资金流水</div><button class="dr-x" @click="closeModal()" aria-label="关闭">✕</button></div>
     <div class="modal-body">

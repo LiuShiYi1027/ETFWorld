@@ -24,6 +24,7 @@ from backend.services.readiness_service import ReadinessService
 from backend.services.etf_service import ETFService
 from backend.services.ai_service import AIService, AINotConfigured
 from backend.services.backtest_service import BacktestService
+from backend.services.dca_service import DcaService
 from backend.services.portfolio_service import PortfolioService
 from backend.services.today_service import TodayService
 from backend.services.review_service import ReviewService
@@ -72,8 +73,9 @@ etf_service = ETFService()
 ai_service = AIService()
 backtest_service = BacktestService()
 portfolio_service = PortfolioService()
+dca_service = DcaService(trade_service)
 today_service = TodayService(grid_service, trade_service, etf_service,
-                             readiness_service, portfolio_service)
+                             readiness_service, portfolio_service, dca_service)
 review_service = ReviewService(grid_service, trade_service, portfolio_service,
                                etf_service)
 watchlist_service = WatchlistService()
@@ -422,6 +424,7 @@ class BacktestParams(BaseModel):
     profit_retention: float = Field(default=0, ge=0, le=100)
     lookback_days: int = Field(default=750, ge=20, le=1500)
     anchor: str = Field(default='window', pattern='^(window|cross)$')
+    compare_rebase: bool = True  # 附带「自动上移重开」对比口径
 
 
 @app.post('/api/grid/backtest')
@@ -492,6 +495,86 @@ def grid_delete(plan_id: int):
     return {'ok': True}
 
 
+# ---------- 定投（估值增强：低估多投、正常少投、高估停投） ----------
+
+class DcaPlanParams(BaseModel):
+    name: Optional[str] = None
+    symbol: str
+    symbol_name: Optional[str] = None
+    base_amount: float = Field(gt=0, description='每期基准金额')
+    frequency: str = Field(default='weekly', pattern='^(weekly|monthly)$')
+    note: Optional[str] = None
+
+
+@app.post('/api/dca/plans')
+def dca_create(p: DcaPlanParams):
+    try:
+        return dca_service.create_plan(p.dict())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get('/api/dca/plans')
+def dca_list():
+    plans = dca_service.list_plans()
+    try:  # 附带当前投入建议（倍数规则的唯一口径在服务端）
+        rows = readiness_service.assess_all()
+        rmap = {r['name']: r for r in rows}
+        for p in plans:
+            idx_name = match_index_name(p.get('symbol_name') or '', list(rmap.keys()))
+            idx = rmap.get(idx_name) if idx_name else None
+            pct = idx.get('valuation_percentile') if idx else None
+            s = DcaService.suggest(p, pct)
+            p['suggestion'] = {**s, 'valuation_pct': pct, 'index_name': idx_name}
+    except Exception as e:  # noqa: BLE001 — 估值数据缺失时无建议字段
+        logger.warning('定投建议计算失败: %s', e)
+    return plans
+
+
+@app.get('/api/dca/plans/{plan_id}')
+def dca_get(plan_id: int):
+    plan = dca_service.get_plan(plan_id)
+    if not plan:
+        raise HTTPException(404, '计划不存在')
+    plan['summary'] = dca_service.plan_summary(plan_id)
+    return plan
+
+
+@app.patch('/api/dca/plans/{plan_id}/status')
+def dca_status(plan_id: int, status: str):
+    try:
+        ok = dca_service.update_status(plan_id, status)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not ok:
+        raise HTTPException(404, '计划不存在')
+    return {'ok': True}
+
+
+@app.delete('/api/dca/plans/{plan_id}')
+def dca_delete(plan_id: int):
+    if not dca_service.delete_plan(plan_id):
+        raise HTTPException(404, '计划不存在')
+    return {'ok': True}
+
+
+class DcaBacktestParams(BaseModel):
+    symbol: str
+    symbol_name: Optional[str] = None
+    base_amount: float = Field(gt=0)
+    frequency: str = Field(default='weekly', pattern='^(weekly|monthly)$')
+    lookback_days: int = Field(default=750, ge=60, le=2500)
+
+
+@app.post('/api/dca/backtest')
+def dca_backtest(p: DcaBacktestParams):
+    """定投回测：普通定投 vs 估值增强定投对比（每期首个交易日买入）"""
+    bars = etf_service.daily_bars(p.symbol, p.lookback_days)
+    if len(bars) < 20:
+        raise HTTPException(400, '历史数据不足 · 请确认标的代码正确且已配置数据源')
+    return dca_service.backtest(p.dict(), bars)
+
+
 # ---------- 交易 ----------
 
 class TradeParams(BaseModel):
@@ -504,6 +587,7 @@ class TradeParams(BaseModel):
     shares: float = Field(gt=0)
     fee: float = Field(default=0, ge=0)
     grid_level: Optional[int] = None
+    dca_plan_id: Optional[int] = None
     note: Optional[str] = None
 
 
@@ -516,8 +600,9 @@ def trade_add(params: TradeParams):
 
 
 @app.get('/api/trades')
-def trade_list(symbol: Optional[str] = None, plan_id: Optional[int] = None):
-    return trade_service.list_trades(symbol, plan_id)
+def trade_list(symbol: Optional[str] = None, plan_id: Optional[int] = None,
+               dca_plan_id: Optional[int] = None):
+    return trade_service.list_trades(symbol, plan_id, dca_plan_id)
 
 
 @app.delete('/api/trades/{trade_id}')
