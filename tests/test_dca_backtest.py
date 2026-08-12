@@ -72,3 +72,11 @@ class TestSimulateDca:
     def test_empty_bars(self):
         r = simulate_dca([], [], 1000)
         assert r['total_invested'] == 0 and r['dates'] == []
+
+    def test_budget_cap_stops_investing(self):
+        """实验室对擂口径：投入不得超出预算，耗尽即停投"""
+        bars = _bars(155)
+        r = simulate_dca(bars, [], 1000, 'monthly', enhanced=False, budget=2500)
+        assert r['total_invested'] <= 2500
+        assert r['periods_invested'] == 2      # 只有前两期投得起
+        assert r['paused_periods'] == 4        # 后四期因预算耗尽停投

@@ -269,7 +269,7 @@ def _dca_period_key(dstr: str, frequency: str):
 
 def simulate_dca(bars: List[tuple], valuations: List[tuple],
                  base_amount: float, frequency: str = 'weekly',
-                 enhanced: bool = True) -> Dict:
+                 enhanced: bool = True, budget: float = None) -> Dict:
     """定投回测：每个定投周期首日按收盘价买入。
 
     Args:
@@ -279,6 +279,8 @@ def simulate_dca(bars: List[tuple], valuations: List[tuple],
         base_amount: 每期基准金额
         frequency: weekly / monthly
         enhanced: True=按时点分位乘倍数（DCA_MULTIPLIERS），False=普通定投（恒 1×）
+        budget: 账户预算上限；设置后投入不得超出（现金耗尽即停投），
+            实验室对擂的公平口径；None 表示不限（计划回测口径）
 
     Returns:
         dates/cost/value 三条等长序列 + 汇总统计。份额按 100 股整手取整。
@@ -323,6 +325,8 @@ def simulate_dca(bars: List[tuple], valuations: List[tuple],
                                  if lo <= pct < hi), 1.0)
             amount = base_amount * mult
             lot = int(amount / close / 100) * 100 if close > 0 else 0
+            if lot > 0 and budget is not None and invested + lot * close > budget + 1e-9:
+                lot = 0  # 预算耗尽：本期停投（实验室对擂口径）
             if lot > 0:
                 shares += lot
                 invested += lot * close
@@ -343,4 +347,89 @@ def simulate_dca(bars: List[tuple], valuations: List[tuple],
         'periods': len(periods),
         'periods_invested': len(invested_periods),
         'paused_periods': len(paused_periods),
+    }
+
+
+# ---------- 轮动回测（动量最强者满仓，全负动量空仓） ----------
+
+def simulate_rotation(bars_by_symbol: Dict[str, List[tuple]],
+                      window: int = 20, rebalance: str = 'weekly',
+                      budget: float = 100000) -> Dict:
+    """动量轮动回测：每个调仓周期首日，满仓切换到近 window 日涨幅最强的品种；
+    所有品种动量 ≤ 0 时转为空仓持币（二八轮动防守规则）。
+
+    Args:
+        bars_by_symbol: {symbol: [(date'YYYYMMDD', close)] 升序}，日期取交集对齐
+        window: 动量窗口（交易日数）
+        rebalance: weekly / monthly
+        budget: 初始资金（账户口径：持仓市值 + 现金）
+
+    Returns:
+        dates/account 等长序列 + events 换仓记录 + 统计。
+    """
+    symbols = list(bars_by_symbol.keys())
+    if len(symbols) < 2 or window < 2:
+        return {'dates': [], 'account': [], 'events': [], 'ret': 0,
+                'max_dd': 0, 'switches': 0, 'final_value': budget}
+    # 日期交集对齐
+    common = None
+    for s in symbols:
+        ds = {d for d, _ in bars_by_symbol[s]}
+        common = ds if common is None else common & ds
+    dates = sorted(common or [])
+    if len(dates) < window + 2:
+        return {'dates': [], 'account': [], 'events': [], 'ret': 0,
+                'max_dd': 0, 'switches': 0, 'final_value': budget}
+    px = {s: dict(bars_by_symbol[s]) for s in symbols}
+
+    cash = float(budget)
+    held_sym, held_shares = None, 0.0
+    events: List[Dict] = []
+    switches = 0
+    account: List[float] = []
+    peak, max_dd = -1e18, 0.0
+    seen_periods = set()
+
+    for i, d in enumerate(dates):
+        key = _dca_period_key(d, rebalance)
+        if i >= window and key not in seen_periods:
+            seen_periods.add(key)
+            # 各品种近 window 日动量
+            mom = {}
+            for s in symbols:
+                p_now, p_prev = px[s][d], px[s][dates[i - window]]
+                mom[s] = (p_now / p_prev - 1) if p_prev > 0 else -1
+            best = max(symbols, key=lambda s: mom[s])
+            target = best if mom[best] > 0 else None  # 全负 → 空仓
+            if target != held_sym:
+                if held_sym is not None:  # 卖出旧持仓（累加到剩余现金，不覆盖）
+                    cash += held_shares * px[held_sym][d]
+                    events.append({'i': i, 'dir': 'sell', 'symbol': held_sym,
+                                   'price': px[held_sym][d]})
+                if target is not None:    # 买入新品种（整手取整）
+                    lot = int(cash / px[target][d] / 100) * 100
+                    held_shares = lot
+                    cash -= lot * px[target][d]
+                    events.append({'i': i, 'dir': 'buy', 'symbol': target,
+                                   'price': px[target][d]})
+                else:
+                    held_shares = 0.0
+                held_sym = target
+                switches += 1
+        value = cash + (held_shares * px[held_sym][d] if held_sym else 0.0)
+        account.append(round(value, 2))
+        peak = max(peak, value)
+        if peak > 0:
+            max_dd = max(max_dd, (peak - value) / peak)
+
+    final = account[-1]
+    return {
+        'dates': dates,
+        'account': account,
+        'events': events,
+        'ret': round((final / budget - 1) * 100, 2),
+        'max_dd': round(max_dd * 100, 2),
+        'switches': switches,
+        'final_value': round(final, 2),
+        'holding': held_sym,  # 期末持仓（None=空仓）
     }

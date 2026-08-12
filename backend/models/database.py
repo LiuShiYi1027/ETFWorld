@@ -164,6 +164,18 @@ class DcaPlanTable(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
+class ResearchNoteTable(Base):
+    """研究笔记：实验室回测结论的快照（spec 可复现重放，不存曲线）"""
+    __tablename__ = 'research_notes'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String(100), nullable=False, comment='标题')
+    spec = Column(JSON, comment='回测完整参数（kind/标的/策略/窗口等）')
+    stats = Column(JSON, comment='结果摘要（各策略收益/回撤等）')
+    note = Column(Text, comment='备注')
+    created_at = Column(DateTime, default=datetime.now)
+
+
 class UpdateLogTable(Base):
     """数据更新日志表"""
     __tablename__ = 'valuation_update_log'

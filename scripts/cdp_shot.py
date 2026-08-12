@@ -129,6 +129,44 @@ def scenario_dca(cdp):
     time.sleep(18)
 
 
+def scenario_lab(cdp):
+    """实验室：搜索 512800 选对擂，再跑轮动默认池"""
+    print('搜索:', cdp.ev("""(() => {
+      const sec = document.querySelector('section.page.on');
+      const input = sec.querySelector('input[placeholder*="510300"]');
+      if (!input) return 'input-not-found';
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setter.call(input, '512800');
+      input.dispatchEvent(new Event('input', {bubbles: true}));
+      return 'typed';
+    })()"""))
+    time.sleep(2.5)
+    print('选中:', cdp.ev("""(() => {
+      const sec = document.querySelector('section.page.on');
+      const row = sec.querySelector('.row');
+      if (!row) return 'no-result';
+      row.click(); return 'picked';
+    })()"""))
+    time.sleep(1)
+    print('对擂:', cdp.ev("""(() => {
+      const sec = document.querySelector('section.page.on');
+      const btn = [...sec.querySelectorAll('button')].find(b => b.textContent.trim()==='开始对比');
+      if (!btn) return 'no-btn';
+      btn.click(); return 'started';
+    })()"""))
+    time.sleep(14)
+    print('轮动:', cdp.ev("""(() => {
+      const sec = document.querySelector('section.page.on');
+      const btn = [...sec.querySelectorAll('button')].find(b => b.textContent.trim()==='开始回测');
+      if (!btn) return 'no-btn';
+      btn.click(); return 'started';
+    })()"""))
+    print('等待轮动渲染…')
+    time.sleep(25)
+    cdp.ev("document.getElementById('rot-chart').scrollIntoView({block:'start'}); 'ok'")
+    time.sleep(1)
+
+
 def main():
     cdp = CDP(connect())
     time.sleep(2.5)
@@ -136,6 +174,8 @@ def main():
         scenario_planner(cdp)
     elif SCENARIO == 'dca':
         scenario_dca(cdp)
+    elif SCENARIO == 'lab':
+        scenario_lab(cdp)
     shot = cdp.cmd('Page.captureScreenshot', {'format': 'png'})
     with open(OUT, 'wb') as f:
         f.write(base64.b64decode(shot['data']))

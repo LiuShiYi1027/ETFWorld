@@ -51,6 +51,23 @@ export const store = reactive({
   // 智能寻品
   discoveryState: null, discoveryResult: null,
   discoveryAi: null, discoveryAiLoading: false,
+  // 实验室
+  labForm: {
+    symbol: '', symbol_name: '', query: '', results: [],
+    strategies: ['hold', 'grid', 'dca'],
+    grid_step: 5, grid_count: 10, amount_per_grid: 10000,
+    base_amount: 2000, frequency: 'monthly', lookback: 750,
+  },
+  labResult: null, labLoading: false,
+  rotForm: { pool: [
+    { symbol: '510300.SH', symbol_name: '沪深300ETF' },
+    { symbol: '510500.SH', symbol_name: '中证500ETF' },
+    { symbol: '159915.SZ', symbol_name: '创业板ETF' },
+    { symbol: '510880.SH', symbol_name: '红利ETF' },
+    { symbol: '511010.SH', symbol_name: '国债ETF' },
+  ], query: '', results: [], window: 20, rebalance: 'weekly', lookback: 750 },
+  rotResult: null, rotLoading: false,
+  labNotes: [], labNoteForm: null,
   // 监控池管理
   watchlist: [], wlManage: false, wlQuery: '', wlResults: [], wlBusy: {},
   // 数据状态与通知
@@ -87,6 +104,7 @@ export function switchTab(name) {
   }
   if (name === 'picks') { loadReadiness(); loadWatchlist(); }
   if (name === 'plans') { loadPlans(); loadDcaPlans(); loadReadiness(); }
+  if (name === 'lab') loadLabNotes();
   if (name === 'portfolio') loadPortfolio();
   if (name === 'review') loadReview();
   if (name === 'planner') loadReadiness();
@@ -145,6 +163,11 @@ export async function loadPlans() {
 export async function loadDcaPlans() {
   try { store.dcaPlans = await API.get('/api/dca/plans'); }
   catch { store.dcaPlans = []; }
+}
+
+export async function loadLabNotes() {
+  try { store.labNotes = await API.get('/api/lab/notes'); }
+  catch { store.labNotes = []; }
 }
 
 export async function loadPlanDetail(id) {
@@ -256,7 +279,7 @@ export function boot() {
   if (h === 'onboarding') { store.obOpen = true; store.obStep = 1; return; }
   if (h) {
     const [t, arg] = h.split('/');
-    if (['home', 'today', 'picks', 'planner', 'plans', 'portfolio', 'review', 'states'].includes(t)) {
+    if (['home', 'today', 'picks', 'planner', 'lab', 'plans', 'portfolio', 'review', 'states'].includes(t)) {
       store.tab = t;
     }
     if (t === 'plans' && arg) openPlan(Number(arg));

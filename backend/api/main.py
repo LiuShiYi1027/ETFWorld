@@ -7,7 +7,7 @@ import logging
 import requests
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -25,6 +25,7 @@ from backend.services.etf_service import ETFService
 from backend.services.ai_service import AIService, AINotConfigured
 from backend.services.backtest_service import BacktestService
 from backend.services.dca_service import DcaService
+from backend.services.lab_service import LabService
 from backend.services.portfolio_service import PortfolioService
 from backend.services.today_service import TodayService
 from backend.services.review_service import ReviewService
@@ -57,6 +58,16 @@ except OSError:  # noqa: BLE001
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title='ETFWorld', description='基于E大投资理念的网格策略辅助工具')
+
+
+@app.middleware('http')
+async def _no_cache_static(request, call_next):
+    """前端静态资源禁用缓存：本地单用户应用，304 重验证成本几乎为零，
+    但旧缓存会导致「HTML 是新、JS 是旧」的混合态（按钮失灵、undefined 输入框）"""
+    resp = await call_next(request)
+    if request.url.path.startswith(('/js/', '/css/', '/vendor/')):
+        resp.headers['Cache-Control'] = 'no-cache'
+    return resp
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / 'frontend'
 FRONTEND = FRONTEND_DIR / 'index.html'
@@ -120,7 +131,8 @@ def startup():
 @app.get('/')
 @app.head('/')  # pywebview/监控探针的 HEAD 请求不应 405
 def index():
-    return FileResponse(FRONTEND)
+    # 主页也不许缓存：HTML 与 JS 必须同版本
+    return FileResponse(FRONTEND, headers={'Cache-Control': 'no-cache'})
 
 
 @app.get('/api/data-status')
@@ -573,6 +585,65 @@ def dca_backtest(p: DcaBacktestParams):
     if len(bars) < 20:
         raise HTTPException(400, '历史数据不足 · 请确认标的代码正确且已配置数据源')
     return dca_service.backtest(p.dict(), bars)
+
+
+# ---------- 策略实验室 ----------
+
+class LabCompareParams(BaseModel):
+    kind: str = Field(default='single', pattern='^(single|rotation)$')
+    symbol: Optional[str] = None
+    symbol_name: Optional[str] = None
+    strategies: Optional[List[str]] = None
+    grid: Optional[Dict] = None
+    dca: Optional[Dict] = None
+    pool: Optional[List[Dict]] = None
+    window: int = Field(default=20, ge=5, le=120)
+    rebalance: str = Field(default='weekly', pattern='^(weekly|monthly)$')
+    lookback_days: int = Field(default=750, ge=60, le=2500)
+    budget: float = Field(default=100000, gt=0)
+
+
+lab_service = LabService()
+
+
+@app.post('/api/lab/compare')
+def lab_compare(p: LabCompareParams):
+    """策略对擂：同一 budget、同一交易日轴、统一净值口径"""
+    if p.kind == 'single' and not p.symbol:
+        raise HTTPException(400, '请选择标的')
+    try:
+        return lab_service.compare(p.dict(), etf_service.daily_bars)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f'回测失败: {e}')
+
+
+class LabNoteParams(BaseModel):
+    title: str
+    spec: Dict
+    stats: Optional[Dict] = None
+    note: Optional[str] = None
+
+
+@app.post('/api/lab/notes')
+def lab_note_save(p: LabNoteParams):
+    try:
+        return lab_service.save_note(p.dict())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get('/api/lab/notes')
+def lab_note_list():
+    return lab_service.list_notes()
+
+
+@app.delete('/api/lab/notes/{note_id}')
+def lab_note_delete(note_id: int):
+    if not lab_service.delete_note(note_id):
+        raise HTTPException(404, '笔记不存在')
+    return {'ok': True}
 
 
 # ---------- 交易 ----------
