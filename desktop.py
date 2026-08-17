@@ -156,11 +156,24 @@ def main():
         show_error(f'本地服务启动失败，请查看日志目录：{DATA_DIR}')
         return 1
     import webview
+
+    class _JsApi:
+        """暴露给前端的原生能力（window.pywebview.api.*）"""
+
+        def open_url(self, url):
+            """在系统浏览器打开外链（webview 里 window.open/target=_blank 不生效）。
+            只允许 http(s) 链接，防滥用。"""
+            import webbrowser
+            url = str(url or '')
+            if url.startswith(('https://', 'http://')):
+                webbrowser.open(url)
+
     window = webview.create_window(
         'ETFWorld · 网格策略终端',
         URL,
         width=1440, height=900, min_size=(1024, 680),
         confirm_close=False,
+        js_api=_JsApi(),
     )
     window.events.closed += stop_server
     webview.start()  # 阻塞在主线程，关闭窗口即退出（daemon 线程随之结束）

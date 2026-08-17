@@ -1,6 +1,6 @@
 // 应用入口：合并状态与页面动作，挂载 Vue 3（全局构建版，零构建哲学不变）
 import { createApp, watch } from '/vendor/vue.esm-browser.prod.js';
-import { store, boot, switchTab, toast, openPlan, loadReadiness, dismissUpdate, fmt } from './store.js';
+import { store, boot, switchTab, toast, openPlan, loadReadiness, dismissUpdate, fmt, openExternal } from './store.js';
 import { homeActions } from './pages/home.js';
 import { todayActions } from './pages/today.js';
 import { picksActions } from './pages/picks.js';
@@ -27,7 +27,7 @@ const app = createApp({
   // data 直接返回同一个 reactive store 单例 —— 模板裸名访问全部不变
   data: () => store,
   methods: Object.assign(
-    { switchTab, toast, openPlan, loadReadiness, dismissUpdate },
+    { switchTab, toast, openPlan, loadReadiness, dismissUpdate, openExternal },
     homeActions, todayActions, picksActions, plannerActions, labActions,
     reviewActions, plansActions, portfolioActions, settingsActions,
     onboardActions, picksDiscoveryActions, dcaActions, rotationActions,

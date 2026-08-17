@@ -50,9 +50,12 @@ jobs:
             --sign "Developer ID Application" dist/ETFWorld.app
           codesign --verify --deep --strict --verbose=2 dist/ETFWorld.app
 
-      - name: 打包 DMG（macOS 自带 hdiutil）
+      - name: 打包 DMG（含 Applications 快捷方式，拖拽即装）
         run: |
-          hdiutil create -volname ETFWorld -srcfolder dist/ETFWorld.app \
+          mkdir -p dist/dmg-stage
+          cp -R dist/ETFWorld.app dist/dmg-stage/
+          ln -s /Applications dist/dmg-stage/Applications
+          hdiutil create -volname ETFWorld -srcfolder dist/dmg-stage \
             -ov -format UDZO dist/ETFWorld-macos-arm64.dmg
       - name: 签名并公证 DMG（公证票 staple 到 DMG，下载即过 Gatekeeper）
         if: vars.MACOS_SIGNING == 'true'
@@ -97,4 +100,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/ETFWorld-windows-x64.exe
-          generate_release_notes: true
+          # 发行说明只由 mac job 生成，双 job 同开会重复
+          generate_release_notes: false

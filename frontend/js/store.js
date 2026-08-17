@@ -242,7 +242,7 @@ export async function loadVersion() {
           store.update = {
             version: rel.tag_name,
             url: rel.html_url,
-            notes: (rel.body || '').trim(),
+            notes: _cleanNotes(rel.body || ''),
             date: (rel.published_at || '').slice(0, 10),
           };
           // 仿 QingWu：启动即弹窗提醒；「跳过此版本」持久化，「稍后」下次启动再提醒
@@ -262,6 +262,22 @@ export function dismissUpdate(skip) {
   if (skip && store.update) {
     localStorage.setItem('etfw_skip_version', store.update.version);
   }
+}
+
+/* 打开外部链接：桌面版（pywebview）走原生接口调系统浏览器，web 版用 window.open */
+export function openExternal(url) {
+  const api = window.pywebview && window.pywebview.api;
+  if (api && api.open_url) api.open_url(url);
+  else window.open(url, '_blank');
+}
+
+/* 清理 release notes：去重、去 markdown 加粗标记、去空行 */
+function _cleanNotes(body) {
+  const seen = new Set();
+  return body.split('\n')
+    .map(l => l.replace(/\*\*/g, '').trim())
+    .filter(l => l && !seen.has(l) && seen.add(l))
+    .join('\n');
 }
 
 /* ---------------- 启动 ---------------- */
