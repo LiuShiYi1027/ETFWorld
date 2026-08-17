@@ -4,6 +4,12 @@ import * as API from './api.js';
 
 export { nextTick };  // 供页面模块统一使用（渲染后回调）
 
+/* 千分位格式化（模板共享小工具） */
+export function fmt(v, d = 3) {
+  if (v == null || isNaN(v)) return '—';
+  return Number(v).toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
 export const store = reactive({
   tab: 'home',
   clock: '', mktOpen: false,

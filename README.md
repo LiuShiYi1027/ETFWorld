@@ -53,7 +53,7 @@
 
 - 博主 **E大（ETF拯救世界）** 与公众号「长赢指数投资」——本项目全部方法论的来源
 - [Tushare](https://tushare.pro) — 估值与行情数据
-- [petite-vue](https://github.com/vuejs/petite-vue) · [ECharts](https://echarts.apache.org) · [FastAPI](https://fastapi.tiangolo.com) · [pywebview](https://pywebview.flowrl.com)
+- [Vue 3](https://vuejs.org)（全局构建版，零构建） · [ECharts](https://echarts.apache.org) · [FastAPI](https://fastapi.tiangolo.com) · [pywebview](https://pywebview.flowrl.com)
 
 ## License
 
