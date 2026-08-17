@@ -91,6 +91,22 @@ class TestTodos:
         assert r['todos'] == []
         assert len(r['health']) == 1
 
+    def test_paused_plan_no_todos(self):
+        """回归：暂停的计划不产生买卖待办（健康度仍保留）"""
+        grid, _, svc = _make_today()
+        _add_plan(grid, status='paused')
+        r = svc.today(near_pct=2.0, prices={'512880': 1.14})  # 距 G1 买卖价均 ≤2%
+        assert r['todos'] == []
+        assert len(r['health']) == 1
+
+    def test_broken_plan_no_todos_but_alert(self):
+        """回归：破网装死=不再挂新单，不产生待办；破网预警灯保留"""
+        grid, _, svc = _make_today()
+        _add_plan(grid, status='broken')
+        r = svc.today(near_pct=2.0, prices={'512880': 1.0})  # 低于最低档 → 破网
+        assert r['todos'] == []
+        assert len(r['alerts']['broken']) == 1
+
 
 class TestAlerts:
     def test_broken_alert_by_price(self):

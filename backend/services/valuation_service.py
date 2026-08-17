@@ -126,12 +126,15 @@ class ValuationService:
         """更新最新一天的估值数据"""
         if not self.client.is_connected():
             return {'status': 'failed', 'error': 'Tushare Token未配置'}
+        pool = _pool()
+        if not pool:
+            return {'status': 'failed', 'error': '监控池为空，请先添加指数'}
 
         prefetched = None
         if not trade_date:
             # 交易日历只说明当天开市，不代表日终估值已经发布。
             # 从最近候选日向前探测，选第一天真正有数据的日期。
-            probe_index = _pool()[0]
+            probe_index = pool[0]
             for candidate in self.client.get_recent_trade_dates(limit=5):
                 records = self._fetch(probe_index, trade_date=candidate)
                 if records:
@@ -142,7 +145,7 @@ class ValuationService:
 
         success, failed = 0, 0
         with get_session() as session:
-            for position, idx in enumerate(_pool()):
+            for position, idx in enumerate(pool):
                 records = prefetched if position == 0 and prefetched is not None else self._fetch(idx, trade_date=trade_date)
                 if records:
                     success += self._save_rows(session, records)
@@ -151,7 +154,7 @@ class ValuationService:
             session.add(UpdateLogTable(
                 trade_date=_parse_date(trade_date),
                 status='success' if failed == 0 else ('partial' if success else 'failed'),
-                indices_count=len(_pool()),
+                indices_count=len(pool),
                 success_count=success,
                 failed_count=failed,
             ))

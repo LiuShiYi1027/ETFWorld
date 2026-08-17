@@ -205,3 +205,11 @@ class UpdateLogTable(Base):
     failed_count = Column(Integer)
     error_message = Column(Text)
     created_at = Column(DateTime, default=datetime.now)
+
+
+class AppMetaTable(Base):
+    """应用级元数据（键值对）：如监控池一次性播种标记 watchlist_seeded"""
+    __tablename__ = 'app_meta'
+
+    key = Column(String(50), primary_key=True)
+    value = Column(String(200))

@@ -103,6 +103,37 @@ class TestOverview:
         assert ov['safety_ratio'] is None
         assert ov['accounts']['core']['positions'] == []
 
+    def test_cash_includes_realized_pnl(self, services):
+        """回归：止盈/止损的已实现净额是真实现金，必须计入现金口径
+        （修复前 现金 = 本金 − 持仓成本，止盈 4000 元会从三账户里凭空消失）"""
+        pf, _, trade = services
+        pf.add_flow({'flow_date': '2026-01-05', 'direction': 'deposit', 'amount': 100000})
+        trade.add_trade({'symbol': '510300', 'symbol_name': '沪深300ETF',
+                         'trade_date': '2026-03-01', 'direction': 'buy',
+                         'price': 4.0, 'shares': 10000})
+        trade.add_trade({'symbol': '510300', 'symbol_name': '沪深300ETF',
+                         'trade_date': '2026-05-01', 'direction': 'sell',
+                         'price': 4.4, 'shares': 10000})
+        ov = pf.overview(prices={'510300': 4.4})
+        assert ov['total_realized'] == 4000.0
+        # 全部落袋：4 万流出、4.4 万回流 → 现金 = 本金 + 4000
+        assert ov['cash'] == 104000.0
+
+    def test_cash_partial_position_with_realized(self, services):
+        """部分止盈：现金 = 本金 − 剩余持仓成本 + 已实现"""
+        pf, _, trade = services
+        pf.add_flow({'flow_date': '2026-01-05', 'direction': 'deposit', 'amount': 100000})
+        trade.add_trade({'symbol': '510300', 'symbol_name': '沪深300ETF',
+                         'trade_date': '2026-03-01', 'direction': 'buy',
+                         'price': 4.0, 'shares': 10000})
+        trade.add_trade({'symbol': '510300', 'symbol_name': '沪深300ETF',
+                         'trade_date': '2026-05-01', 'direction': 'sell',
+                         'price': 4.4, 'shares': 5000})
+        ov = pf.overview(prices={'510300': 4.4})
+        assert ov['total_realized'] == 2000.0
+        # 流出 4 万、回流 2.2 万 → 现金 8.2 万 = 本金 − 剩余成本 2 万 + 已实现 2000
+        assert ov['cash'] == 82000.0
+
     def test_broken_plan_excluded_from_safety(self, services):
         pf, grid, _ = services
         plan = _make_plan(grid)

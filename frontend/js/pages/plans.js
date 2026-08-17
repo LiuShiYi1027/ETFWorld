@@ -97,10 +97,11 @@ export const plansActions = {
   },
   async delPlan(p, btn) {
     if (btn.dataset.armed) {
-      await API.del(`/api/grid/plans/${p.id}`);
+      const r = await API.del(`/api/grid/plans/${p.id}`);
       store.detail = null;
       await loadPlans(); loadToday();
-      toast(`计划 <b>#${p.id} ${p.name}</b> 已删除`, '', {
+      const extra = r && r.unlinked_trades ? `，${r.unlinked_trades} 笔成交已保留为底仓` : '';
+      toast(`计划 <b>#${p.id} ${p.name}</b> 已删除${extra}`, '', {
         label: '撤销', fn: async () => {
           const re = await API.post('/api/grid/plans', {
             name: p.name, symbol: p.symbol, symbol_name: p.symbol_name,

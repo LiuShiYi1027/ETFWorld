@@ -297,13 +297,19 @@ class GridService:
             plan.status = status
             return True
 
-    def delete_plan(self, plan_id: int) -> bool:
+    def delete_plan(self, plan_id: int) -> Optional[Dict]:
+        """删除计划。关联成交不连带删除：解绑 plan_id/grid_level 后保留，
+        持仓自然落入组合层底仓账户（成交是真实账本，不能随计划蒸发）。"""
         with get_session() as session:
             plan = session.get(GridPlanTable, plan_id)
             if not plan:
-                return False
+                return None
+            trades = session.query(TradeTable).filter_by(plan_id=plan_id).all()
+            for t in trades:
+                t.plan_id = None
+                t.grid_level = None
             session.delete(plan)
-            return True
+            return {'ok': True, 'unlinked_trades': len(trades)}
 
     @staticmethod
     def _to_dict(p: GridPlanTable) -> Dict:

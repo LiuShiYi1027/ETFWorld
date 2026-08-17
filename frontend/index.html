@@ -196,7 +196,7 @@
         <div class="field"><label>金额（元）</label><input v-model="flowForm.amount" type="number" min="0"></div>
         <div class="field"><label>备注</label><input v-model="flowForm.note" placeholder="可选"></div>
       </div>
-      <div class="note" style="padding:12px 0 0;">本金 = Σ入金 − Σ出金；现金 = 本金 − 持仓成本。流水只记账，不动银行卡。</div>
+      <div class="note" style="padding:12px 0 0;">本金 = Σ入金 − Σ出金；现金 = 本金 − 持仓成本 + 已实现净额。流水只记账，不动银行卡。</div>
     </div>
     <div class="modal-foot"><button class="btn" @click="closeModal()">取消</button><button class="btn primary" @click="saveFundFlow()">保存</button></div>
   </div>

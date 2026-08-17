@@ -105,16 +105,28 @@ def simulate_rebase_grid(prices: List[float], step: float, count: int, amount: f
                          mode: str = 'amount', shares: float = 0) -> Dict:
     """自动上移重开口径的回测（与 simulate_grid 同输入，供静态/重开对比）。
 
-    规则：价格涨过当前网格第 1 格卖出价（此时所有持仓必然已兑现、账户全现金），
-    立即以现价为新基准重开网格（与产品的「上移重开」语义一致）。
-    每次重开占用一份新的预算，收益率对累计投入资本归一。
+    规则：窗口起点先以首日为基准开一张网（与静态口径同锚）；此后价格涨过当前
+    网格第 1 格卖出价时，以现价为新基准重开网格（与产品的「上移重开」语义一致）。
+    每日先成交再判重开：涨穿顶格当天旧网格各档必然全部兑现（卖出价都低于顶格），
+    账面不会丢持仓。每次重开占用一份新的预算，收益率对累计投入资本归一。
     """
     if not prices:
         return {'g': [], 'trades': 0, 'rebases': 0, 'grid_ret': 0, 'max_dd': 0,
                 'invested_pct': 0, 'events': []}
     top_step = step / 100
+
+    def _open(base_price: float) -> List[Dict]:
+        levels = generate_levels(base_price, step, count, amount, inc, ret,
+                                 grid_mode=mode, shares_per_grid=shares)
+        return [{'buy': l['buy_price'], 'sell': l['sell_price'],
+                 'shares': l['shares'], 'sell_shares': l['sell_shares'],
+                 'retained_shares': l['retained_shares'],
+                 'amount': l['amount'], 'held': False, 'level': l['level']}
+                for l in levels]
+
     base = prices[0]
-    total_capital = 0.0
+    book = _open(base)  # 窗口起点的初始网格（缺失它，阴跌行情会回测出"零收益"假象）
+    total_capital = sum(L['amount'] for L in book)
     realized = 0.0
     retained = 0
     rebases = 0
@@ -124,21 +136,9 @@ def simulate_rebase_grid(prices: List[float], step: float, count: int, amount: f
     invested = 0.0
     events: List[Dict] = []
     g: List[float] = []
-    book: List[Dict] = []
 
     for idx, pr in enumerate(prices):
-        if pr > base / (1 - top_step):  # 涨穿顶格 → 网格全空 → 上移重开
-            base = pr
-            rebases += 1
-            levels = generate_levels(base, step, count, amount, inc, ret,
-                                     grid_mode=mode, shares_per_grid=shares)
-            total_capital += sum(l['amount'] for l in levels)
-            book = [{'buy': l['buy_price'], 'sell': l['sell_price'],
-                     'shares': l['shares'], 'sell_shares': l['sell_shares'],
-                     'retained_shares': l['retained_shares'],
-                     'amount': l['amount'], 'held': False, 'level': l['level']}
-                    for l in levels]
-        for L in book:
+        for L in book:  # 先成交：涨穿顶格当天，旧网格剩余持仓在此全部兑现
             if not L['held'] and pr <= L['buy']:
                 L['held'] = True
                 events.append({'i': idx, 'dir': 'buy', 'level': L['level'], 'price': L['buy']})
@@ -148,7 +148,12 @@ def simulate_rebase_grid(prices: List[float], step: float, count: int, amount: f
                 retained += L['retained_shares']
                 trades += 1
                 events.append({'i': idx, 'dir': 'sell', 'level': L['level'], 'price': L['sell']})
-        if not book or total_capital <= 0:
+        if pr > base / (1 - top_step):  # 涨穿顶格 → 网格全空 → 上移重开
+            base = pr
+            rebases += 1
+            book = _open(base)
+            total_capital += sum(L['amount'] for L in book)
+        if total_capital <= 0:
             g.append(g[-1] if g else 0.0)
             continue
         inv = sum(L['amount'] for L in book if L['held'])

@@ -4,7 +4,8 @@
 把原先在前端驾驶舱的 planHealth 逻辑移到服务端，并升级为"执行感知"：
 - 下一买档：低于现价的最高 buy_price，且该档处于"待买"状态（无成交）
 - 下一卖档：高于现价的最低 sell_price，且该档处于"持有"状态（有买未卖）
-- 距现价 ≤ near_pct（默认 2%）的档位进入今日待办
+- 距现价 ≤ near_pct（默认 2%）的档位进入今日待办（仅 active 计划；
+  paused/broken 保留健康度与预警灯，但不产生买卖待办）
 
 预警四盏灯：破网（现价 < 最低档或计划已 broken）、高位运行（现价 ≥ 基准价）、
 估值越界（综合分位 >50% —— 雷达否决线，暂停买入）、
@@ -53,10 +54,12 @@ class TodayService:
             if cur is None:
                 continue
 
-            # 待办：距现价 ≤ near_pct 的下一买/卖档
-            for cand in (h['next_buy'], h['next_sell']):
-                if cand and cand['dist_pct'] <= near_pct:
-                    todos.append(cand)
+            # 待办：只对 active 计划生成（paused 是用户主动暂停；broken 装死持有
+            # 不再挂新单——两者保留在 health 与预警灯中，但不产生买卖待办）
+            if p['status'] == 'active':
+                for cand in (h['next_buy'], h['next_sell']):
+                    if cand and cand['dist_pct'] <= near_pct:
+                        todos.append(cand)
 
             # 预警灯
             if p['status'] == 'broken' or cur < h['low']:

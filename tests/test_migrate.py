@@ -102,3 +102,16 @@ def test_ensure_column_idempotent(tmp_path):
         c.execute(text('CREATE TABLE t (id INTEGER PRIMARY KEY)'))
         assert migrate.ensure_column(c, 't', 'x', 'NUMERIC(8, 4)') is True
         assert migrate.ensure_column(c, 't', 'x', 'NUMERIC(8, 4)') is False
+
+
+def test_old_db_gets_app_meta_table(tmp_path):
+    """迁移 5：老库升级后 app_meta 键值表存在（监控池一次性播种标记）"""
+    eng = _make_engine(tmp_path / 'old5.db')
+    _create_v1_grid_plans(eng)
+    Base.metadata.create_all(eng)
+    migrate.run_migrations(eng)
+    with eng.connect() as c:
+        tables = {r[0] for r in c.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table'"))}
+    assert 'app_meta' in tables
+    assert _user_version(eng) == migrate.SCHEMA_VERSION

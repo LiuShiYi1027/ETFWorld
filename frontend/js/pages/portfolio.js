@@ -18,7 +18,7 @@ export const portfolioActions = {
         good: total >= d.principal },
       { k: '底仓', v: wan(d.accounts.core.market_value ?? d.accounts.core.cost), f: `${d.accounts.core.positions.length} 只 · 含留存` },
       { k: '网格', v: wan(d.accounts.grid.market_value ?? d.accounts.grid.cost), f: `${d.accounts.grid.positions.length} 个持仓计划` },
-      { k: '现金', v: wan(d.cash), f: '= 本金 − 持仓成本' },
+      { k: '现金', v: wan(d.cash), f: '= 本金 − 持仓成本 + 已实现' },
     ];
   },
   // 三账户占比条（含留存拆出）

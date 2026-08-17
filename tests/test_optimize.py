@@ -1,6 +1,6 @@
 """参数寻优（规则层）测试：活性标注与备选组合"""
 from backend.services.backtest_service import (
-    BacktestService, LOW_ACTIVITY_TRADES, simulate_rebase_grid,
+    BacktestService, LOW_ACTIVITY_TRADES, simulate_grid, simulate_rebase_grid,
 )
 
 # 震荡回到原点的序列：买得勤、卖得也勤
@@ -99,3 +99,23 @@ class TestRebaseSimulate:
     def test_empty_prices(self):
         r = simulate_rebase_grid([], step=5, count=3, amount=10000)
         assert r['trades'] == 0 and r['rebases'] == 0
+
+    def test_rebase_opens_initial_grid_at_window_start(self):
+        """回归：阴跌行情（从未涨穿顶格）也必须先开初始网格——
+        修复前 book 初始为空，阴跌窗口会回测出"零交易零收益"的假象"""
+        DOWN = [1.0 * (0.995 ** i) for i in range(60)]
+        static = simulate_grid(DOWN, step=5, count=3, amount=10000)
+        r = simulate_rebase_grid(DOWN, step=5, count=3, amount=10000)
+        assert r['rebases'] == 0
+        assert r['g'] == static['g']  # 从未重开 → 与静态口径逐日一致
+        assert r['grid_ret'] == static['grid_ret'] != 0
+
+    def test_rebase_day_sells_before_reopening(self):
+        """回归：涨穿顶格当天，旧网格持仓先兑现再重开（不丢持仓账面）"""
+        # 第 1 天买入第 1 格（1.0），第 2 天直接涨到 1.10 涨穿顶格（1/0.95≈1.0526）
+        r = simulate_rebase_grid([1.0, 1.10], step=5, count=3, amount=10000)
+        assert r['rebases'] == 1
+        assert r['trades'] == 1  # 旧网格第 1 格在涨穿当天卖出兑现
+        sells = [e for e in r['events'] if e['dir'] == 'sell']
+        assert len(sells) == 1 and sells[0]['i'] == 1
+        assert r['grid_ret'] > 0  # 兑现利润计入账户，而非随旧网格蒸发

@@ -48,3 +48,12 @@ def test_name_map_reflects_changes():
     assert wl.name_map()['801980.SI'] == '煤炭'
     wl.remove('801980.SI')
     assert '801980.SI' not in wl.name_map()
+
+
+def test_remove_all_does_not_reseed():
+    """回归：用户删空监控池后不得自动复活默认池（播种只发生一次）"""
+    wl = WatchlistService()
+    for idx in wl.list_indices():
+        assert wl.remove(idx['ts_code']) is True
+    assert wl.list_indices() == []
+    assert wl.list_indices() == []  # 再读也不复活

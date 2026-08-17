@@ -8,7 +8,7 @@ import logging
 from typing import Dict, List, Optional
 
 from backend.config.settings import SUPPORTED_INDICES
-from backend.models.database import WatchlistTable
+from backend.models.database import AppMetaTable, WatchlistTable
 from backend.utils.db import get_session
 
 logger = logging.getLogger(__name__)
@@ -56,11 +56,18 @@ class WatchlistService:
 
     @staticmethod
     def _seed_if_empty(session) -> None:
-        """空表时从默认清单播种（开源用户开箱即用的 41 只精选池）"""
+        """首次使用从默认清单播种（开源用户开箱即用的 41 只精选池）。
+
+        只播一次：播种标记写入 app_meta 后，用户删空监控池不会被重新播种。
+        老库升级时表内已有数据 → 直接盖标记，不补种。
+        """
+        if session.get(AppMetaTable, 'watchlist_seeded') is not None:
+            return
         if session.query(WatchlistTable).count() == 0:
             for idx in SUPPORTED_INDICES:
                 session.add(WatchlistTable(
                     ts_code=idx['ts_code'], name=idx['name'],
                     category=idx.get('category'), source=idx.get('source', 'index')))
-            session.flush()
             logger.info('监控池已从默认清单播种 %d 只', len(SUPPORTED_INDICES))
+        session.add(AppMetaTable(key='watchlist_seeded', value='1'))
+        session.flush()

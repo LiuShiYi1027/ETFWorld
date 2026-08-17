@@ -505,9 +505,10 @@ def grid_status(plan_id: int, status: str):
 
 @app.delete('/api/grid/plans/{plan_id}')
 def grid_delete(plan_id: int):
-    if not grid_service.delete_plan(plan_id):
+    result = grid_service.delete_plan(plan_id)
+    if result is None:
         raise HTTPException(404, '计划不存在')
-    return {'ok': True}
+    return result
 
 
 # ---------- 定投（估值增强：低估多投、正常少投、高估停投） ----------

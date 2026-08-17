@@ -74,12 +74,18 @@ def _m004_rotation(conn, dialect):
     _reconcile_columns(conn, dialect)
 
 
+def _m005_app_meta(conn, dialect):
+    """迁移 5：app_meta 键值表（监控池一次性播种标记；新表由 create_all 建）。"""
+    _reconcile_columns(conn, dialect)
+
+
 # (版本号, 迁移函数)；版本号严格递增，迁移函数签名 fn(conn, dialect)
 MIGRATIONS = [
     (1, _m001_reconcile),
     (2, _m002_grid_mode),
     (3, _m003_dca),
     (4, _m004_rotation),
+    (5, _m005_app_meta),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]

@@ -3,7 +3,8 @@
 
 口径定义（与前端组合页一致）：
 - 本金 = Σ入金 − Σ出金（FundFlowTable）
-- 现金 = 本金 − 全部持仓净成本（移动加权平均口径，由成交记录推导）
+- 现金 = 本金 − 全部持仓净成本 + 已实现净额（移动加权平均口径，由成交记录推导；
+  止盈/止损的盈亏是真实现金流，必须计入弹药水位）
 - 底仓 = plan_id 为空的手工持仓；网格持仓 = plan_id 非空的持仓
 - 留存底仓 = 网格卖出后留在档位上的份额（该档 买−卖 净额），是网格持仓的子集，
   三账户展示时从网格持仓中拆出单列（成本视为 0 的"免费"份额）
@@ -158,13 +159,17 @@ class PortfolioService:
 
         principal = self.principal()
         total_cost = round(sum(p['cost'] for p in core + grid if p['shares'] > 0), 2)
-        cash = round(principal - total_cost, 2)
+        total_realized = round(sum(p['realized_pnl'] for p in core + grid), 2)
+        # 现金 = 本金 − 持仓成本 + 已实现净额（移动加权口径下恒等于
+        # 本金 − 累计买入流出 + 累计卖出回流，止盈/止损不再凭空消失）
+        cash = round(principal - total_cost + total_realized, 2)
         safety_ratio = round(full_capital / principal, 4) if principal > 0 else None
 
         result = {
             'principal': principal,
             'cash': cash,
             'total_cost': total_cost,
+            'total_realized': total_realized,
             'accounts': {
                 'core': {'cost': round(sum(p['cost'] for p in core if p['shares'] > 0), 2),
                          'market_value': _mv(core), 'positions': core},

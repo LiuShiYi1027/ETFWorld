@@ -142,3 +142,35 @@ class TestBreakAction:
         with pytest.raises(ValueError):
             grid.break_action(1, 'freeze')
         assert grid.break_action(999, 'hold') is None
+
+
+class TestDeletePlan:
+    def test_delete_unlinks_trades_to_core(self, services):
+        """回归：删除计划不连带删除成交——解绑为底仓，账本不随计划蒸发"""
+        grid, trade = services
+        plan = grid.create_plan({'name': '测试', 'symbol': '510300', 'base_price': 1.0,
+                                 'grid_step': 5, 'grid_count': 3, 'amount_per_grid': 10000})
+        t = trade.add_trade({'plan_id': plan['id'], 'symbol': '510300',
+                             'trade_date': '2026-07-01', 'direction': 'buy',
+                             'price': 1.0, 'shares': 100})
+        assert t['grid_level'] == 1
+
+        r = grid.delete_plan(plan['id'])
+        assert r == {'ok': True, 'unlinked_trades': 1}
+        assert grid.get_plan(plan['id']) is None
+        kept = trade.list_trades(symbol='510300')
+        assert len(kept) == 1                        # 成交保留
+        assert kept[0]['plan_id'] is None            # 解绑 → 落入底仓
+        assert kept[0]['grid_level'] is None
+        pos = trade.get_positions()
+        assert pos[0]['shares'] == 100               # 持仓账本完好
+
+    def test_delete_missing_plan(self, services):
+        grid, _ = services
+        assert grid.delete_plan(999) is None
+
+    def test_delete_planless_no_unlink_count(self, services):
+        grid, _ = services
+        plan = grid.create_plan({'name': '空仓', 'symbol': '510300', 'base_price': 1.0,
+                                 'grid_step': 5, 'grid_count': 3, 'amount_per_grid': 10000})
+        assert grid.delete_plan(plan['id']) == {'ok': True, 'unlinked_trades': 0}
