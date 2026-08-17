@@ -20,7 +20,6 @@ export const reviewActions = {
     ];
   },
   planRows() { return store.reviewData ? store.reviewData.plans : []; },
-  statusChip: { active: 'go', paused: 'maybe', broken: 'no', closed: 'wait' },
 
   breakdown() {
     const rv = store.reviewData, pf = store.portfolioData;

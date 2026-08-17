@@ -1,7 +1,8 @@
 // 全局状态与共享加载器。store 是唯一响应式数据源，页面模块通过动作函数改写它。
+import { reactive, nextTick } from '/vendor/vue.esm-browser.prod.js';
 import * as API from './api.js';
 
-const { reactive } = window.PetiteVue;
+export { nextTick };  // 供页面模块统一使用（渲染后回调）
 
 export const store = reactive({
   tab: 'home',
@@ -18,6 +19,10 @@ export const store = reactive({
   weekly: null, weeklyLoading: false,
   ai: { enabled: false, model: null },
   settings: null,
+
+  // 计划状态徽章样式映射（模板共享常量，原来散在各页面 actions 里，
+  // Vue methods 只接受函数，故入 store）
+  statusChip: { active: 'go', paused: 'maybe', broken: 'no', closed: 'wait' },
 
   // UI 状态
   drawer: null,            // 指数 ts_code；null=关闭
@@ -291,7 +296,7 @@ export function boot() {
 export async function openPlan(id) {
   if (store.tab !== 'plans') switchTab('plans');
   await loadPlanDetail(id);
-  window.PetiteVue.nextTick(() => {
+  nextTick(() => {
     const el = document.getElementById('plan-detail');
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });

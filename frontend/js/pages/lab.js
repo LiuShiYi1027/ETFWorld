@@ -1,6 +1,6 @@
 // 实验室：单品种策略对擂 + 轮动沙盒 + 研究笔记
 import * as API from '../api.js';
-import { store, toast, loadLabNotes } from '../store.js';
+import { nextTick, store, toast, loadLabNotes } from '../store.js';
 
 const DEFAULT_POOL = [
   { symbol: '510300.SH', symbol_name: '沪深300ETF' },
@@ -27,7 +27,7 @@ async function runCompare() {
     };
     store.labResult = await API.post('/api/lab/compare', spec);
     store.labResult._spec = spec;
-    window.PetiteVue.nextTick(() => renderLabChart('lab-chart', store.labResult));
+    nextTick(() => renderLabChart('lab-chart', store.labResult));
   } catch (e) { toast('对比失败 · ' + e.message, 'warn'); }
   finally { store.labLoading = false; }
 }
@@ -44,7 +44,7 @@ async function runRotation() {
     };
     store.rotResult = await API.post('/api/lab/compare', spec);
     store.rotResult._spec = spec;
-    window.PetiteVue.nextTick(() => renderLabChart('rot-chart', store.rotResult));
+    nextTick(() => renderLabChart('rot-chart', store.rotResult));
   } catch (e) { toast('回测失败 · ' + e.message, 'warn'); }
   finally { store.rotLoading = false; }
 }

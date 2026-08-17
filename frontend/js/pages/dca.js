@@ -1,6 +1,6 @@
 // 定投：计划管理（计划页区块）+ 今天页定投待办
 import * as API from '../api.js';
-import { store, toast, loadDcaPlans, loadToday } from '../store.js';
+import { nextTick, store, toast, loadDcaPlans, loadToday } from '../store.js';
 
 // 建议倍数 chip 的样式与文案（数据来自服务端 suggestion，这里只管展示）
 function sugChip(s) {
@@ -74,7 +74,7 @@ export const dcaActions = {
     store.dcaDetailTrades = await API.get(`/api/trades?dca_plan_id=${p.id}`);
     store.dcaBt = null;
     runDcaBacktest(store.dcaLookback);
-    window.PetiteVue.nextTick(() => {
+    nextTick(() => {
       const el = document.getElementById('dca-detail');
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
@@ -130,7 +130,7 @@ async function runDcaBacktest(days) {
       symbol: d.symbol, symbol_name: d.symbol_name,
       base_amount: d.base_amount, frequency: d.frequency, lookback_days: days,
     });
-    window.PetiteVue.nextTick(() => renderDcaChart(store.dcaBt));
+    nextTick(() => renderDcaChart(store.dcaBt));
   } catch (e) {
     store.dcaBt = null;
     toast('回测失败 · ' + e.message, 'warn');

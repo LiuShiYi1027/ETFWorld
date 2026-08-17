@@ -62,7 +62,6 @@ export const plansActions = {
   },
   planValuation,
   closePlan,
-  statusChip: { active: 'go', paused: 'maybe', broken: 'no', closed: 'wait' },
 
   open(id, withAi) {
     openPlan(id).then(() => { if (withAi) runPlanAi(); });

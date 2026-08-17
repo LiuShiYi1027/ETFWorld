@@ -8,9 +8,9 @@
 <title>ETFWorld · 网格策略</title>
 <link rel="stylesheet" href="/css/app.css">
 <script src="/vendor/echarts.min.js"></script>
-<script src="/vendor/petite-vue.js"></script>
 </head>
-<body v-cloak>
+<body>
+<div id="app" v-cloak>
 <header><div class="hd">
   <div class="brand"><span class="sq"></span>ETFWorld</div>
   <nav id="nav" aria-label="主导航">
@@ -299,7 +299,7 @@
   </div>
 </section>
 <!-- ==================== 规划 ==================== -->
-<section class="page" :class="{on:tab==='planner'}" v-show="tab==='planner'" v-effect="if(tab==='planner')applySeed()">
+<section class="page" :class="{on:tab==='planner'}" v-show="tab==='planner'">
   <div class="pagehead">
     <h1>规划</h1>
     <p>定参数 → 看档位表与压力测试 → 回测验证 → 存为计划。买入价 = 基准价 × (1−格距)ⁱ，卖出价 = 买入价 ÷ (1−格距)。</p>
@@ -1063,7 +1063,7 @@
 </aside>
 
 <!-- 弹层：资金流水 / 成交 / 设置 -->
-<div id="modal" :class="{show:!!modal}" @click="if($event.target===$event.currentTarget)closeModal()">
+<div id="modal" :class="{show:!!modal}" @click="$event.target===$event.currentTarget && closeModal()">
   <div class="modal-card" v-if="modal==='labnote' && labNoteForm">
     <div class="modal-head"><div class="t">存为研究笔记</div><button class="dr-x" @click="closeModal()" aria-label="关闭">✕</button></div>
     <div class="modal-body">
@@ -1243,6 +1243,8 @@
       </div>
     </div>
   </div>
+</div>
+
 </div>
 
 <script type="module" src="/js/app.js"></script>

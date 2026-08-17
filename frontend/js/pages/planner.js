@@ -1,6 +1,6 @@
 // 规划：参数 → 档位表/压力测试 → 回测（echarts）→ 存为计划
 import * as API from '../api.js';
-import { store, toast, switchTab, loadPlans } from '../store.js';
+import { nextTick, store, toast, switchTab, loadPlans } from '../store.js';
 
 function formParams() {
   const f = store.plannerForm;
@@ -57,7 +57,7 @@ async function runBacktest() {
   store.plannerBt = null;
   try {
     store.plannerBt = await API.post('/api/grid/backtest', { ...p, lookback_days: store.plannerLookback, anchor: store.plannerAnchor, compare_rebase: store.compareRebase });
-    window.PetiteVue.nextTick(() => renderBtChart(store.plannerBt));
+    nextTick(() => renderBtChart(store.plannerBt));
   } catch { store.plannerBt = { error: true }; }
   finally { store.btLoading = false; }
 }
