@@ -115,6 +115,7 @@ class TradeTable(Base):
     fee = Column(Numeric(12, 2), default=0, comment='手续费')
     grid_level = Column(Integer, comment='对应网格档位')
     dca_plan_id = Column(Integer, ForeignKey('dca_plans.id'), nullable=True, comment='关联定投计划')
+    rotation_plan_id = Column(Integer, ForeignKey('rotation_plans.id'), nullable=True, comment='关联轮动计划')
     note = Column(Text, comment='备注')
 
     created_at = Column(DateTime, default=datetime.now)
@@ -157,6 +158,22 @@ class DcaPlanTable(Base):
     symbol_name = Column(String(100), comment='标的名称')
     base_amount = Column(Numeric(14, 2), nullable=False, comment='基准金额(每期)')
     frequency = Column(String(10), nullable=False, default='weekly', comment='频率(weekly/monthly)')
+    status = Column(String(20), default='active', comment='状态(active/paused/closed)')
+    note = Column(Text, comment='备注')
+
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class RotationPlanTable(Base):
+    """轮动计划表（动量轮动：每周期持有动量最强者，全负动量空仓）"""
+    __tablename__ = 'rotation_plans'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False, comment='计划名称')
+    pool = Column(JSON, nullable=False, comment='品种池 [{symbol, symbol_name}]')
+    window = Column(Integer, nullable=False, default=20, comment='动量窗口(交易日)')
+    rebalance = Column(String(10), nullable=False, default='weekly', comment='调仓频率(weekly/monthly)')
     status = Column(String(20), default='active', comment='状态(active/paused/closed)')
     note = Column(Text, comment='备注')
 

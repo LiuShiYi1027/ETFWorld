@@ -13,6 +13,7 @@ import { settingsActions } from './pages/settings.js';
 import { onboardActions } from './pages/onboarding.js';
 import { picksDiscoveryActions } from './pages/discovery.js';
 import { dcaActions } from './pages/dca.js';
+import { rotationActions } from './pages/rotation.js';
 import { TodayView } from './pages/today.view.js';
 import { PlansView } from './pages/plans.view.js';
 import { PlannerView } from './pages/planner.view.js';
@@ -29,7 +30,7 @@ const app = createApp({
     { switchTab, toast, openPlan, loadReadiness, dismissUpdate },
     homeActions, todayActions, picksActions, plannerActions, labActions,
     reviewActions, plansActions, portfolioActions, settingsActions,
-    onboardActions, picksDiscoveryActions, dcaActions,
+    onboardActions, picksDiscoveryActions, dcaActions, rotationActions,
     {
       // 模板小工具
       fmt,

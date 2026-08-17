@@ -86,6 +86,7 @@ export const store = reactive({
   notifyEnabled: true,
   flowForm: null, settingsForm: null,
   dcaForm: null, dcaDetail: null, dcaDetailTrades: [],
+  rotationPlans: [], rotPlanForm: null, rotDetail: null, rotDetailTrades: [],
   dcaBt: null, dcaBtLoading: false, dcaLookback: 750,
   // 首启向导
   obOpen: false, obStep: 1,
@@ -114,7 +115,7 @@ export function switchTab(name) {
     if (!store.reviewData) loadReview();
   }
   if (name === 'picks') { loadReadiness(); loadWatchlist(); }
-  if (name === 'plans') { loadPlans(); loadDcaPlans(); loadReadiness(); }
+  if (name === 'plans') { loadPlans(); loadDcaPlans(); loadRotationPlans(); loadReadiness(); }
   if (name === 'lab') loadLabNotes();
   if (name === 'portfolio') loadPortfolio();
   if (name === 'review') loadReview();
@@ -174,6 +175,11 @@ export async function loadPlans() {
 export async function loadDcaPlans() {
   try { store.dcaPlans = await API.get('/api/dca/plans'); }
   catch { store.dcaPlans = []; }
+}
+
+export async function loadRotationPlans() {
+  try { store.rotationPlans = await API.get('/api/rotation/plans'); }
+  catch { store.rotationPlans = []; }
 }
 
 export async function loadLabNotes() {
@@ -266,6 +272,7 @@ export function boot() {
   loadToday();
   loadPlans();
   loadDcaPlans();
+  loadRotationPlans();
   loadPortfolio();
   // 首启检测：未配置数据源或无数据且未曾完成向导 → 进入首启向导
   API.get('/api/settings').then(s => {

@@ -26,6 +26,7 @@ from backend.services.ai_service import AIService, AINotConfigured
 from backend.services.backtest_service import BacktestService
 from backend.services.dca_service import DcaService
 from backend.services.lab_service import LabService
+from backend.services.rotation_service import RotationService, rotation_target
 from backend.services.portfolio_service import PortfolioService
 from backend.services.today_service import TodayService
 from backend.services.review_service import ReviewService
@@ -85,8 +86,10 @@ ai_service = AIService()
 backtest_service = BacktestService()
 portfolio_service = PortfolioService()
 dca_service = DcaService(trade_service)
+rotation_service = RotationService(trade_service)
 today_service = TodayService(grid_service, trade_service, etf_service,
-                             readiness_service, portfolio_service, dca_service)
+                             readiness_service, portfolio_service, dca_service,
+                             rotation_service)
 review_service = ReviewService(grid_service, trade_service, portfolio_service,
                                etf_service)
 watchlist_service = WatchlistService()
@@ -646,6 +649,66 @@ def lab_note_delete(note_id: int):
     return {'ok': True}
 
 
+# ---------- 轮动计划（动量轮动的执行侧） ----------
+
+class RotationPlanParams(BaseModel):
+    name: Optional[str] = None
+    pool: List[Dict]
+    window: int = Field(default=20, ge=5, le=120)
+    rebalance: str = Field(default='weekly', pattern='^(weekly|monthly)$')
+    note: Optional[str] = None
+
+
+@app.post('/api/rotation/plans')
+def rotation_create(p: RotationPlanParams):
+    try:
+        return rotation_service.create_plan(p.dict())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get('/api/rotation/plans')
+def rotation_list():
+    return rotation_service.list_plans()
+
+
+@app.get('/api/rotation/plans/{plan_id}')
+def rotation_get(plan_id: int):
+    plan = rotation_service.get_plan(plan_id)
+    if not plan:
+        raise HTTPException(404, '计划不存在')
+    plan['holding'] = rotation_service.current_holding(plan_id)
+    try:  # 当前动量目标（行情失败则缺省）
+        closes_map = {p['symbol']: etf_service.daily_closes(p['symbol'], plan['window'] + 10)
+                      for p in plan['pool']}
+        target, mom = rotation_target(closes_map, plan['window'])
+        names = {p['symbol']: p.get('symbol_name') for p in plan['pool']}
+        plan['target'] = {'symbol': target, 'symbol_name': names.get(target),
+                          'momentum': mom.get(target)} if target else None
+        plan['momentum'] = mom
+    except Exception as e:  # noqa: BLE001
+        logger.warning('轮动目标计算失败: %s', e)
+    return plan
+
+
+@app.patch('/api/rotation/plans/{plan_id}/status')
+def rotation_status(plan_id: int, status: str):
+    try:
+        ok = rotation_service.update_status(plan_id, status)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not ok:
+        raise HTTPException(404, '计划不存在')
+    return {'ok': True}
+
+
+@app.delete('/api/rotation/plans/{plan_id}')
+def rotation_delete(plan_id: int):
+    if not rotation_service.delete_plan(plan_id):
+        raise HTTPException(404, '计划不存在')
+    return {'ok': True}
+
+
 # ---------- 交易 ----------
 
 class TradeParams(BaseModel):
@@ -659,6 +722,7 @@ class TradeParams(BaseModel):
     fee: float = Field(default=0, ge=0)
     grid_level: Optional[int] = None
     dca_plan_id: Optional[int] = None
+    rotation_plan_id: Optional[int] = None
     note: Optional[str] = None
 
 
@@ -672,8 +736,9 @@ def trade_add(params: TradeParams):
 
 @app.get('/api/trades')
 def trade_list(symbol: Optional[str] = None, plan_id: Optional[int] = None,
-               dca_plan_id: Optional[int] = None):
-    return trade_service.list_trades(symbol, plan_id, dca_plan_id)
+               dca_plan_id: Optional[int] = None,
+               rotation_plan_id: Optional[int] = None):
+    return trade_service.list_trades(symbol, plan_id, dca_plan_id, rotation_plan_id)
 
 
 @app.delete('/api/trades/{trade_id}')

@@ -69,11 +69,17 @@ def _m003_dca(conn, dialect):
     _reconcile_columns(conn, dialect)
 
 
+def _m004_rotation(conn, dialect):
+    """迁移 4：v2.6 轮动计划（trades.rotation_plan_id 列；rotation_plans 新表由 create_all 建）。"""
+    _reconcile_columns(conn, dialect)
+
+
 # (版本号, 迁移函数)；版本号严格递增，迁移函数签名 fn(conn, dialect)
 MIGRATIONS = [
     (1, _m001_reconcile),
     (2, _m002_grid_mode),
     (3, _m003_dca),
+    (4, _m004_rotation),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]

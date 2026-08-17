@@ -2,6 +2,7 @@
 import { store, fmt, switchTab } from '../store.js';
 import { plansActions } from './plans.js';
 import { dcaActions } from './dca.js';
+import { rotationActions } from './rotation.js';
 
 export const PlansView = {
   template: `
@@ -11,6 +12,7 @@ export const PlansView = {
     <p>计划 = 参数 + 执行状态 + 成交记录的归档单元。破网计划需人工处置，不会自动恢复。</p>
     <div class="spacer"></div>
     <button class="btn" @click="openDcaCreate()">+ 新建定投计划</button>
+    <button class="btn" @click="openRotCreate()">+ 新建轮动计划</button>
     <button class="btn primary" @click="switchTab('planner')">+ 新建网格计划</button>
   </div>
   <div class="card">
@@ -63,6 +65,70 @@ export const PlansView = {
       </table>
     </div>
     <div class="empty-note" v-else>还没有定投计划 · 点右上角「+ 新建定投计划」开始低估定投</div>
+  </div>
+
+  <!-- 轮动计划 -->
+  <div class="card">
+    <div class="card-h"><div class="t">轮动计划</div><div class="d">动量最强者满仓 · 全负动量空仓 · 共 {{ rotPlanRows().length }} 个</div></div>
+    <div class="card-b" style="padding-left:10px;padding-right:10px;" v-if="rotPlanRows().length">
+      <table>
+        <thead><tr><th class="l">名称</th><th class="l">品种池</th><th>动量窗口</th><th>调仓</th><th class="l">状态</th><th class="l">操作</th></tr></thead>
+        <tbody>
+          <tr class="clk" v-for="p in rotPlanRows()" :key="p.id" @click="openRotDetail(p)">
+            <td class="l"><span class="sym">{{ p.name }}</span></td>
+            <td class="l" style="color:var(--muted);">{{ rotPoolLabel(p) }}</td>
+            <td>{{ p.window }} 日</td>
+            <td>{{ p.rebalance==='monthly'?'每月':'每周' }}</td>
+            <td class="l"><span class="chip" :class="statusChip[p.status]||'wait'">{{ p.status.toUpperCase() }}</span></td>
+            <td class="l" @click="$event.stopPropagation();">
+              <button class="btn sm" @click="openRotDetail(p)">查看</button>
+              <button class="btn sm" v-if="p.status==='active'" @click="rotSetStatus(p,'paused')">暂停</button>
+              <button class="btn sm" v-if="p.status==='paused'" @click="rotSetStatus(p,'active')">恢复</button>
+              <button class="btn sm danger" @click="delRotPlan(p,$event.currentTarget)">删除</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="empty-note" v-else>还没有轮动计划 · 去「实验室」的轮动沙盒验证参数后再创建</div>
+  </div>
+
+  <!-- 轮动详情 -->
+  <div id="rot-detail" v-if="rotDetail">
+    <div class="card">
+      <div class="card-h">
+        <div class="t">轮动详情 · {{ rotDetail.name }} <span class="chip" :class="statusChip[rotDetail.status]||'wait'" style="margin-left:6px;">{{ rotDetail.status.toUpperCase() }}</span></div>
+        <div class="d">{{ rotPoolLabel(rotDetail) }} · {{ rotDetail.window }} 日动量 · {{ rotDetail.rebalance==='monthly'?'每月':'每周' }}调仓</div>
+      </div>
+      <div class="card-b">
+        <div class="kpis flat" style="grid-template-columns:repeat(3,1fr);margin-bottom:10px;">
+          <div class="kpi"><div class="k">当前持仓</div><div class="v sm">{{ rotDetail.holding ? rotDetail.holding.symbol_name : '空仓' }}</div><div class="f" v-if="rotDetail.holding">{{ rotDetail.holding.shares.toLocaleString('zh-CN') }} 份</div></div>
+          <div class="kpi"><div class="k">当前目标</div><div class="v sm" :class="{warm:!rotDetail.target}">{{ rotDetail.target ? (rotDetail.target.symbol_name || rotDetail.target.symbol) : '空仓观望' }}</div><div class="f" v-if="rotDetail.target && rotDetail.target.momentum != null">动量 {{ rotDetail.target.momentum }}%</div></div>
+          <div class="kpi"><div class="k">池内动量</div><div class="v sm" style="font-size:13px;line-height:1.6;">{{ (rotDetail.pool||[]).map(x => (x.symbol_name||x.symbol) + ' ' + ((rotDetail.momentum||{})[x.symbol] ?? '—') + '%').join(' · ') }}</div></div>
+        </div>
+        <div class="btnrow">
+          <button class="btn" v-if="rotDetail.status==='active'" @click="rotSetStatus(rotDetail,'paused');closeRotDetail()">暂停</button>
+          <button class="btn primary" v-if="rotDetail.status==='paused'" @click="rotSetStatus(rotDetail,'active');closeRotDetail()">恢复</button>
+          <button class="btn danger" v-if="rotDetail.status!=='closed'" @click="rotSetStatus(rotDetail,'closed');closeRotDetail()">结束计划</button>
+          <button class="btn" @click="closeRotDetail()">收起</button>
+        </div>
+      </div>
+      <div class="card-h" style="border-top:1px solid var(--line);padding-top:14px;"><div class="t">换仓记录</div><div class="d">{{ rotDetailTrades.length }} 笔</div></div>
+      <div class="card-b" style="padding-left:10px;padding-right:10px;" v-if="rotDetailTrades.length">
+        <table>
+          <thead><tr><th class="l">日期</th><th class="l">方向</th><th class="l">标的</th><th>价格</th><th>份额</th><th>金额</th></tr></thead>
+          <tbody>
+            <tr v-for="t in rotDetailTrades" :key="t.id">
+              <td class="l">{{ t.trade_date }}</td>
+              <td class="l"><span class="dir" :class="t.direction==='buy'?'buy':'sell'"><i></i>{{ t.direction==='buy'?'买入':'卖出' }}</span></td>
+              <td class="l">{{ t.symbol_name || t.symbol }}</td>
+              <td>{{ t.price }}</td><td>{{ t.shares.toLocaleString('zh-CN') }}</td><td>{{ fmt(t.amount,0) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="empty-note" v-else>还没有换仓记录 · 今天页出现调仓待办后记录</div>
+    </div>
   </div>
 
   <!-- 定投详情 -->
@@ -237,5 +303,9 @@ export const PlansView = {
              dcaSugChip: dcaActions.dcaSugChip, openDcaDetail: dcaActions.openDcaDetail,
              dcaSetStatus: dcaActions.dcaSetStatus, delDcaPlan: dcaActions.delDcaPlan,
              runDcaBacktest: dcaActions.runDcaBacktest, closeDcaDetail: dcaActions.closeDcaDetail,
+             rotPlanRows: rotationActions.rotPlanRows, rotPoolLabel: rotationActions.rotPoolLabel,
+             openRotCreate: rotationActions.openRotCreate,
+             openRotDetail: rotationActions.openRotDetail, closeRotDetail: rotationActions.closeRotDetail,
+             rotSetStatus: rotationActions.rotSetStatus, delRotPlan: rotationActions.delRotPlan,
              switchTab, fmt },
 };

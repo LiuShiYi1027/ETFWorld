@@ -24,13 +24,15 @@ class TodayService:
     """今日待办与预警聚合（服务实例由 main.py 注入）"""
 
     def __init__(self, grid_service, trade_service, etf_service,
-                 readiness_service, portfolio_service, dca_service=None):
+                 readiness_service, portfolio_service, dca_service=None,
+                 rotation_service=None):
         self.grid = grid_service
         self.trade = trade_service
         self.etf = etf_service
         self.readiness = readiness_service
         self.portfolio = portfolio_service
         self.dca = dca_service
+        self.rotation = rotation_service
 
     def today(self, near_pct: float = 2.0, prices: Optional[Dict[str, float]] = None) -> Dict:
         plans = [p for p in self.grid.list_plans() if p['status'] in ('active', 'paused', 'broken')]
@@ -93,9 +95,16 @@ class TodayService:
                 dca_todos = self.dca.due_todos(readiness)
             except Exception as e:  # noqa: BLE001 — 定投待办失败不阻塞主视图
                 logger.warning('定投待办计算失败: %s', e)
+        rotation_todos = []
+        if self.rotation is not None:
+            try:
+                rotation_todos = self.rotation.due_todos(self.etf.daily_closes)
+            except Exception as e:  # noqa: BLE001 — 轮动待办失败不阻塞主视图
+                logger.warning('轮动待办计算失败: %s', e)
         return {
             'todos': todos,
             'dca_todos': dca_todos,
+            'rotation_todos': rotation_todos,
             'alerts': alerts,
             'health': health,
             'portfolio': self._portfolio_brief(prices),

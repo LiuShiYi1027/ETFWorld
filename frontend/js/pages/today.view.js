@@ -3,6 +3,7 @@ import { store, fmt, switchTab } from '../store.js';
 import { todayActions } from './today.js';
 import { dcaActions } from './dca.js';
 import { picksActions } from './picks.js';
+import { rotationActions } from './rotation.js';
 
 export const TodayView = {
   template: `
@@ -56,6 +57,29 @@ export const TodayView = {
     <div class="note">定投不自动扣款，待办只负责提醒。金额 = 基准 × 分位倍数；停投与止盈提示只提醒、不代操作。</div>
   </div>
 
+  <div class="card" v-if="rotList().length">
+    <div class="card-h"><div class="t">轮动调仓</div><div class="d">动量最强者满仓 · 全负空仓 · <b>{{ rotList().length }} 条</b></div></div>
+    <div class="card-b" style="padding:8px 0 10px;">
+      <div class="row" v-for="t in rotList()" :key="t.rotation_plan_id">
+        <span class="dir" :class="t.action==='enter'?'buy':'sell'"><i></i></span>
+        <div style="flex:1;min-width:0;">
+          <div class="nm">{{ t.name }} <span class="chip" :class="t.action==='exit'?'no':t.action==='enter'?'go':'maybe'">{{ rotActionLabel(t) }}</span>
+            <span style="color:var(--faint);font-size:12px;">{{ t.period_label }} · {{ t.window }}日动量</span></div>
+          <div class="sub">
+            <template v-if="t.holding">现持 {{ t.holding.symbol_name }} {{ t.holding.shares.toLocaleString('zh-CN') }} 份 → </template>
+            <template v-if="t.target">目标 <b>{{ t.target.symbol_name }}</b>（动量 {{ t.target.momentum }}%）</template>
+            <template v-else>池内动量全负，转为空仓</template>
+          </div>
+        </div>
+        <div style="white-space:nowrap;">
+          <button class="btn sm danger" v-if="t.holding && !t.sell_done" @click="rotRecord(t,'sell')">记卖出</button>
+          <button class="btn sm" style="color:var(--accent);border-color:#86EFAC;" v-if="t.target && !t.buy_done" @click="rotRecord(t,'buy')">记买入</button>
+        </div>
+      </div>
+    </div>
+    <div class="note">轮动不自动下单。调仓是双腿动作：先记卖出、再记买入，两腿都完成本期待办才消失。</div>
+  </div>
+
   <div class="alerts" v-if="alertList().length">
     <div class="alert" v-for="al in alertList()" :key="al.title+al.chip" :class="al.kind">
       <div class="at">{{ al.title }}<span class="chip" :class="al.chipCls">{{ al.chip }}</span></div>
@@ -103,5 +127,7 @@ export const TodayView = {
   methods: { ...todayActions, completeDca: dcaActions.completeDca,
              dismissDca: dcaActions.dismissDca, dcaList: dcaActions.dcaList,
              dcaChip: dcaActions.dcaChip, openDrawer: picksActions.openDrawer,
+             rotList: rotationActions.rotList, rotActionLabel: rotationActions.rotActionLabel,
+             rotRecord: rotationActions.rotRecord,
              switchTab, fmt },
 };

@@ -125,6 +125,42 @@
     <div class="modal-foot"><button class="btn" @click="closeModal()">取消</button><button class="btn primary" @click="saveLabNote()">保存</button></div>
   </div>
 
+  <div class="modal-card" v-if="modal==='rotation' && rotPlanForm">
+    <div class="modal-head"><div class="t">新建轮动计划</div><button class="dr-x" @click="closeModal()" aria-label="关闭">✕</button></div>
+    <div class="modal-body">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <span class="chip blue" v-for="p in rotPlanForm.pool" :key="p.symbol" style="cursor:pointer;" title="点击移除" @click="rotPlanRemove(p.symbol)">{{ p.symbol_name }} ✕</span>
+        <span style="color:var(--faint);font-size:12px;" v-if="!rotPlanForm.pool.length">先搜索加入 2-6 只品种</span>
+      </div>
+      <div class="field"><label>加入品种（名称 / 代码）</label><input v-model="rotPlanForm.query" @input="rotPlanSearch()" placeholder="如 沪深300 / 510300"></div>
+      <div v-if="rotPlanForm.results.length" style="margin-top:6px;border:1px solid var(--line);border-radius:8px;overflow:hidden;">
+        <div class="row" v-for="e in rotPlanForm.results" :key="e.ts_code" @click="rotPlanPick(e)" style="padding:8px 12px;">
+          <div style="flex:1;min-width:0;"><div class="nm" style="font-size:13px;">{{ e.name }}</div><div class="sub">{{ e.ts_code }}</div></div>
+          <span style="color:var(--faint);">+</span>
+        </div>
+      </div>
+      <div class="formgrid" style="margin-top:10px;">
+        <div class="field"><label>计划名称</label><input v-model="rotPlanForm.name" placeholder="自动按品种池命名"></div>
+        <div class="field"><label>动量窗口</label>
+          <div class="seg" style="display:flex;">
+            <button :class="{on:rotPlanForm.window===10}" @click="rotPlanForm.window=10" style="flex:1;">10日</button>
+            <button :class="{on:rotPlanForm.window===20}" @click="rotPlanForm.window=20" style="flex:1;">20日</button>
+            <button :class="{on:rotPlanForm.window===30}" @click="rotPlanForm.window=30" style="flex:1;">30日</button>
+            <button :class="{on:rotPlanForm.window===60}" @click="rotPlanForm.window=60" style="flex:1;">60日</button>
+          </div>
+        </div>
+        <div class="field"><label>调仓频率</label>
+          <div class="seg" style="display:flex;">
+            <button :class="{on:rotPlanForm.rebalance==='weekly'}" @click="rotPlanForm.rebalance='weekly'" style="flex:1;">每周</button>
+            <button :class="{on:rotPlanForm.rebalance==='monthly'}" @click="rotPlanForm.rebalance='monthly'" style="flex:1;">每月</button>
+          </div>
+        </div>
+      </div>
+      <div class="note" style="padding:12px 0 0;">规则：每个调仓周期持有近 N 日动量最强的品种；池内动量全负时空仓。建议先去「实验室」轮动沙盒回测验证参数。</div>
+    </div>
+    <div class="modal-foot"><button class="btn" @click="closeModal()">取消</button><button class="btn primary" @click="saveRotPlan()">创建计划</button></div>
+  </div>
+
   <div class="modal-card" v-if="modal==='dca' && dcaForm">
     <div class="modal-head"><div class="t">新建定投计划</div><button class="dr-x" @click="closeModal()" aria-label="关闭">✕</button></div>
     <div class="modal-body">

@@ -161,6 +161,7 @@ export const plansActions = {
         price: parseFloat(f.price), shares: parseFloat(f.shares),
         fee: parseFloat(f.fee || 0), note: f.note || undefined,
         dca_plan_id: f.dca_plan_id || undefined,
+        rotation_plan_id: f.rotation_plan_id || undefined,
       });
       store.modal = null;
       toast(t.grid_level ? `已记录并匹配到 <b>G${t.grid_level}</b>` : '已记录（未匹配到档位）');

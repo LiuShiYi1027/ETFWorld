@@ -43,6 +43,7 @@ class TradeService:
                 fee=params.get('fee', 0),
                 grid_level=grid_level,
                 dca_plan_id=params.get('dca_plan_id'),
+                rotation_plan_id=params.get('rotation_plan_id'),
                 note=params.get('note'),
             )
             session.add(trade)
@@ -59,7 +60,7 @@ class TradeService:
         return _sum('buy') - _sum('sell')
 
     def list_trades(self, symbol: str = None, plan_id: int = None,
-                    dca_plan_id: int = None) -> List[Dict]:
+                    dca_plan_id: int = None, rotation_plan_id: int = None) -> List[Dict]:
         with get_session() as session:
             q = session.query(TradeTable)
             if symbol:
@@ -68,6 +69,8 @@ class TradeService:
                 q = q.filter(TradeTable.plan_id == plan_id)
             if dca_plan_id:
                 q = q.filter(TradeTable.dca_plan_id == dca_plan_id)
+            if rotation_plan_id:
+                q = q.filter(TradeTable.rotation_plan_id == rotation_plan_id)
             trades = q.order_by(TradeTable.trade_date.desc(), TradeTable.id.desc()).all()
             return [self._to_dict(t) for t in trades]
 
@@ -158,5 +161,6 @@ class TradeService:
             'amount': round(float(t.price) * float(t.shares), 2),
             'grid_level': t.grid_level,
             'dca_plan_id': t.dca_plan_id,
+            'rotation_plan_id': t.rotation_plan_id,
             'note': t.note,
         }
