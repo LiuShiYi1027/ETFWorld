@@ -95,7 +95,7 @@ export const rotationActions = {
     store.tradeForm = {
       plan_id: null, rotation_plan_id: t.rotation_plan_id,
       symbol: leg.symbol, symbol_name: leg.symbol_name,
-      trade_date: new Date().toISOString().slice(0, 10),
+      trade_date: API.todayLocal(),
       direction,
       price,
       shares: isSell && t.holding ? t.holding.shares : '',

@@ -174,3 +174,40 @@ class TestDeletePlan:
         plan = grid.create_plan({'name': '空仓', 'symbol': '510300', 'base_price': 1.0,
                                  'grid_step': 5, 'grid_count': 3, 'amount_per_grid': 10000})
         assert grid.delete_plan(plan['id']) == {'ok': True, 'unlinked_trades': 0}
+
+
+class TestSellValidationByAccount:
+    def test_plan_sell_cannot_use_core_shares(self, services):
+        """底仓有货也不能记成网格计划卖出：按 (symbol, plan_id) 校验"""
+        grid, trade = services
+        plan = grid.create_plan({'name': '测试', 'symbol': '510300', 'base_price': 1.0,
+                                 'grid_step': 5, 'grid_count': 3, 'amount_per_grid': 10000})
+        trade.add_trade({'symbol': '510300', 'trade_date': '2026-07-01',
+                         'direction': 'buy', 'price': 1.0, 'shares': 10000})  # 底仓
+        with pytest.raises(ValueError, match='超过当前持仓'):
+            trade.add_trade({'plan_id': plan['id'], 'symbol': '510300',
+                             'trade_date': '2026-07-02', 'direction': 'sell',
+                             'price': 1.0, 'shares': 5000})
+
+    def test_core_sell_cannot_use_plan_shares(self, services):
+        """网格计划持仓也不能被底仓卖出挪用"""
+        grid, trade = services
+        plan = grid.create_plan({'name': '测试', 'symbol': '510300', 'base_price': 1.0,
+                                 'grid_step': 5, 'grid_count': 3, 'amount_per_grid': 10000})
+        trade.add_trade({'plan_id': plan['id'], 'symbol': '510300',
+                         'trade_date': '2026-07-01', 'direction': 'buy',
+                         'price': 1.0, 'shares': 10000})
+        with pytest.raises(ValueError, match='超过当前持仓'):
+            trade.add_trade({'symbol': '510300', 'trade_date': '2026-07-02',
+                             'direction': 'sell', 'price': 1.0, 'shares': 5000})
+
+    def test_delete_buy_that_would_make_negative_position_rejected(self, services):
+        """删除成交同样要回放校验：删掉买入会留下裸卖空时拒绝删除"""
+        _, trade = services
+        b = trade.add_trade({'symbol': '510300', 'trade_date': '2026-07-01',
+                             'direction': 'buy', 'price': 1.0, 'shares': 1000})
+        trade.add_trade({'symbol': '510300', 'trade_date': '2026-07-02',
+                         'direction': 'sell', 'price': 1.1, 'shares': 1000})
+        with pytest.raises(ValueError, match='持仓为负'):
+            trade.delete_trade(b['id'])
+        assert len(trade.list_trades(symbol='510300')) == 2  # 两笔都还在

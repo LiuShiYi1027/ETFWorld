@@ -8,7 +8,7 @@
 - 底仓 = plan_id 为空的手工持仓；网格持仓 = plan_id 非空的持仓
 - 留存底仓 = 网格卖出后留在档位上的份额（该档 买−卖 净额），是网格持仓的子集，
   三账户展示时从网格持仓中拆出单列（成本视为 0 的"免费"份额）
-- 安全线 = ACTIVE + PAUSED 计划满格资金合计 ÷ 本金
+- 安全线 = ACTIVE + PAUSED 计划"剩余补网资金"合计 ÷ 本金（已买入/留存档不再重复计提）
 """
 import logging
 from datetime import datetime
@@ -23,7 +23,7 @@ from backend.utils.matching import _strip_sw_suffix, match_index_name
 
 logger = logging.getLogger(__name__)
 
-# 满格资金计入安全线的计划状态（BROKEN 不再挂新单，CLOSED 已归档，均不计入）
+# 剩余补网资金计入安全线的计划状态（BROKEN 不再挂新单，CLOSED 已归档，均不计入）
 _RESERVED_STATUS = ('active', 'paused')
 
 
@@ -152,10 +152,20 @@ class PortfolioService:
             vals = [i['market_value'] for i in items if i['market_value'] is not None]
             return round(sum(vals), 2) if vals else None
 
+        # 安全线分子 = 剩余补网资金：已买入(hold)/留存(keep)档的钱已经花出去，
+        # 不再重复计提；wait 与已完成一轮可再买的 sold 档仍需预留弹药。
+        from backend.services.grid_service import derive_level_states
+        plan_trades: Dict[int, list] = {}
+        for t in trades:
+            if t.plan_id is not None:
+                plan_trades.setdefault(t.plan_id, []).append(t)
         full_capital = 0.0
         for p in plans.values():
             if p.status in _RESERVED_STATUS and p.levels:
-                full_capital += sum(float(l.get('amount') or 0) for l in p.levels)
+                states = derive_level_states(p.levels, plan_trades.get(p.id, []))
+                full_capital += sum(float(l.get('amount') or 0)
+                                    for l, s in zip(p.levels, states)
+                                    if s in ('wait', 'sold'))
 
         principal = self.principal()
         total_cost = round(sum(p['cost'] for p in core + grid if p['shares'] > 0), 2)

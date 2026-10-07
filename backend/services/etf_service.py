@@ -58,6 +58,7 @@ class ETFService:
     def __init__(self):
         self._basic: Optional[List[Dict]] = None
         self._amount_cache: Optional[Dict[str, Dict]] = None
+        self._amount_cache_day: Optional[str] = None
         self._adj_cache: Dict[str, Optional[Dict[str, float]]] = {}
 
     def _load_basic(self, force: bool = False) -> List[Dict]:
@@ -98,17 +99,23 @@ class ETFService:
 
     def refresh(self) -> int:
         self._amount_cache = None
+        self._amount_cache_day = None
         return len(self._load_basic(force=True))
 
     def _latest_amounts(self) -> Dict[str, Dict]:
-        """一次取全市场最新成交额（千元）与收盘价，用于流动性排序"""
-        if self._amount_cache is not None:
+        """一次取全市场最新成交额（千元）与收盘价，用于流动性排序。
+
+        进程内只按自然日缓存：桌面应用常驻跨天时必须重取；休市期取不到
+        数据时不缓存空结果，避免之后开市仍一直返回空表。
+        """
+        today = datetime.now().strftime('%Y-%m-%d')
+        if self._amount_cache is not None and self._amount_cache_day == today:
             return self._amount_cache
         pro = get_pro()
         if pro is None:
             return {}
-        # 从最近交易日往前找有数据的一天
-        for back in range(0, 8):
+        # 从最近交易日往前找有数据的一天（覆盖春节/国庆等长休市）
+        for back in range(0, 15):
             d = (datetime.now() - timedelta(days=back)).strftime('%Y%m%d')
             df = pro.fund_daily(trade_date=d)
             if df is not None and not df.empty:
@@ -118,9 +125,9 @@ class ETFService:
                                    'trade_date': str(r['trade_date'])}
                     for _, r in df.iterrows()
                 }
+                self._amount_cache_day = today
                 return self._amount_cache
-        self._amount_cache = {}
-        return self._amount_cache
+        return {}
 
     def search(self, keyword: str, limit: int = 20) -> List[Dict]:
         """按关键词搜索 ETF（匹配代码/名称/跟踪基准），按成交额降序"""

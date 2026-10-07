@@ -151,23 +151,30 @@ def data_status():
 
 @app.post('/api/notify')
 def notify(p: dict):
-    """系统通知（桌面提醒）：macOS 用 osascript，Windows 用 PowerShell 气泡"""
+    """系统通知（桌面提醒）：macOS 用 osascript，Windows 用 PowerShell 气泡。
+
+    title/body 一律通过环境变量传给脚本进程，不把用户文本拼进脚本字符串，
+    避免本机未鉴权端点被用来注入 AppleScript/PowerShell。
+    """
+    import os
     import subprocess
     import sys as _sys
-    title = str(p.get('title', 'ETFWorld'))[:80].replace('"', "'")
-    body = str(p.get('body', ''))[:200].replace('"', "'")
+    title = str(p.get('title', 'ETFWorld'))[:80]
+    body = str(p.get('body', ''))[:200]
+    env = {**os.environ, 'ETFW_TITLE': title, 'ETFW_BODY': body}
     try:
         if _sys.platform == 'darwin':
             subprocess.Popen(['osascript', '-e',
-                              f'display notification "{body}" with title "{title}"'],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                              'display notification (system attribute "ETFW_BODY") '
+                              'with title (system attribute "ETFW_TITLE")'],
+                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         elif _sys.platform.startswith('win'):
             ps = ("Add-Type -AssemblyName System.Windows.Forms;"
                   "$n=New-Object System.Windows.Forms.NotifyIcon;"
-                  f"$n.Icon='Info';$n.Visible=$true;"
-                  f"$n.ShowBalloonTip(5000,'{title}','{body}','Info')")
+                  "$n.Icon='Info';$n.Visible=$true;"
+                  "$n.ShowBalloonTip(5000,$env:ETFW_TITLE,$env:ETFW_BODY,'Info')")
             subprocess.Popen(['powershell', '-NoProfile', '-Command', ps],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return {'ok': True}
     except Exception as e:  # noqa: BLE001 — 通知失败不打断主流程
         logger.warning('系统通知发送失败: %s', e)
@@ -198,10 +205,10 @@ def version():
 
 class SettingsUpdate(BaseModel):
     tushare_token: Optional[str] = None
-    tushare_api_url: str = 'https://ttx.dailyfetch.top/'
+    tushare_api_url: Optional[str] = None
     ai_api_key: Optional[str] = None
-    ai_api_url: str = 'https://api.deepseek.com/chat/completions'
-    ai_model: str = 'deepseek-chat'
+    ai_api_url: Optional[str] = None
+    ai_model: Optional[str] = None
     clear_tushare_token: bool = False
     clear_ai_api_key: bool = False
 
@@ -224,11 +231,19 @@ def settings_get():
 
 @app.put('/api/settings')
 def settings_update(payload: SettingsUpdate):
-    values = {
-        'TUSHARE_API_URL': payload.tushare_api_url.strip(),
-        'AI_API_URL': payload.ai_api_url.strip(),
-        'AI_MODEL': payload.ai_model.strip(),
-    }
+    # 只更新显式传入的字段：首启向导只 PUT token 时，不能冲掉用户自定义的
+    # Tushare 镜像 / AI 端点 / 模型配置。
+    values = {}
+    for field, key in (('tushare_api_url', 'TUSHARE_API_URL'),
+                       ('ai_api_url', 'AI_API_URL'),
+                       ('ai_model', 'AI_MODEL')):
+        raw = getattr(payload, field)
+        if raw is None:
+            continue
+        val = raw.strip()
+        if not val:
+            raise HTTPException(400, '接口地址和模型名称不能为空')
+        values[key] = val
     if payload.clear_tushare_token:
         values['TUSHARE_TOKEN'] = ''
     elif payload.tushare_token and payload.tushare_token.strip():
@@ -237,8 +252,6 @@ def settings_update(payload: SettingsUpdate):
         values['AI_API_KEY'] = ''
     elif payload.ai_api_key and payload.ai_api_key.strip():
         values['AI_API_KEY'] = payload.ai_api_key.strip()
-    if not values['TUSHARE_API_URL'] or not values['AI_API_URL'] or not values['AI_MODEL']:
-        raise HTTPException(400, '接口地址和模型名称不能为空')
     settings.save_runtime_settings(values)
     return settings_get()
 
@@ -744,7 +757,11 @@ def trade_list(symbol: Optional[str] = None, plan_id: Optional[int] = None,
 
 @app.delete('/api/trades/{trade_id}')
 def trade_delete(trade_id: int):
-    if not trade_service.delete_trade(trade_id):
+    try:
+        ok = trade_service.delete_trade(trade_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not ok:
         raise HTTPException(404, '记录不存在')
     return {'ok': True}
 

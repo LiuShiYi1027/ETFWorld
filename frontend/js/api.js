@@ -16,3 +16,10 @@ export const post = (p, body) => api(p, { method: 'POST', body: JSON.stringify(b
 export const put = (p, body) => api(p, { method: 'PUT', body: JSON.stringify(body ?? {}) });
 export const patch = (p) => api(p, { method: 'PATCH' });
 export const del = (p) => api(p, { method: 'DELETE' });
+
+/* 本地日期 YYYY-MM-DD（避免 toISOString 的 UTC 日期在 0-8 点错一天） */
+export function todayLocal() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 10);
+}

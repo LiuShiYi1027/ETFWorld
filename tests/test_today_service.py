@@ -73,6 +73,29 @@ class TestTodos:
         sells = [t for t in r['todos'] if t['direction'] == 'sell']
         assert sells == []
 
+    def test_crossed_shallower_buy_wins_over_deeper_wait(self):
+        """跳空穿越浅档时，待办应指向已穿越的浅档，而不是更深的未触发档"""
+        grid, _, svc = _make_today()
+        _add_plan(grid)  # G1 1.15 / G2 1.081 / G3 1.01614
+        # 现价 1.05：G2 已穿越（距 2.95%），G3 还未到（距 3.23%）
+        r = svc.today(near_pct=3.0, prices={'512880': 1.05})
+        buys = [t for t in r['todos'] if t['direction'] == 'buy']
+        assert len(buys) == 1 and buys[0]['level'] == 2
+
+    def test_sold_level_can_buy_again(self):
+        """完成一轮买卖的档位回到买价附近时，应能再次产生买入待办（网格循环）"""
+        grid, trade, svc = _make_today()
+        p = _add_plan(grid)
+        trade.add_trade({'plan_id': p['id'], 'symbol': '512880',
+                         'trade_date': '2026-07-10', 'direction': 'buy',
+                         'price': 1.15, 'shares': 100, 'grid_level': 1})
+        trade.add_trade({'plan_id': p['id'], 'symbol': '512880',
+                         'trade_date': '2026-07-11', 'direction': 'sell',
+                         'price': 1.2234, 'shares': 100, 'grid_level': 1})
+        r = svc.today(near_pct=2.0, prices={'512880': 1.15})
+        buys = [t for t in r['todos'] if t['direction'] == 'buy']
+        assert len(buys) == 1 and buys[0]['level'] == 1
+
     def test_sell_todo_when_near(self):
         grid, trade, svc = _make_today()
         p = _add_plan(grid)

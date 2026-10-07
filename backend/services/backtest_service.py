@@ -6,7 +6,9 @@
 - 价格逐日下穿买入价→买入、上穿卖出价→卖出兑现
 - 账户价值 =(预算-已投入)+持仓市值+底仓市值+已实现，收益率对预算归一
 - 留利润(网格2.0)：卖出时只卖 sell_shares，本金全部收回，retained_shares
-  转入免费底仓永久持有（市值计入账户，不再参与网格买卖）
+  转入免费底仓永久持有（市值计入账户，不再参与网格买卖）；
+  不足一手（shares=0）或留利润吞噬全部卖出份额（sell_shares=0）的档位
+  不参与撮合，也不计入套利次数
 - 破网：价格跌破最后一格买入价后无格可买，账户等同满仓持有，
   用 broken_idx 标出首次跌破的交易日供前端提示
 
@@ -62,10 +64,14 @@ def simulate_grid(prices: List[float], step: float, count: int, amount: float,
 
     for idx, pr in enumerate(prices):
         for L in book:
+            if int(L['shares']) <= 0:
+                continue  # 不足一手：现实中无法成交，不参与撮合与活性统计
             if not L['held'] and pr <= L['buy']:
                 L['held'] = True
                 events.append({'i': idx, 'dir': 'buy', 'level': L['level'], 'price': L['buy']})
             elif L['held'] and pr >= L['sell']:
+                if int(L['sell_shares']) <= 0:
+                    continue  # 留利润吞噬全部卖出份额：一股未卖，不计套利回合
                 L['held'] = False
                 # 卖出份额兑现并收回该格全部本金，留存份额转为底仓
                 realized += L['sell_shares'] * L['sell'] - L['amount']
@@ -139,10 +145,14 @@ def simulate_rebase_grid(prices: List[float], step: float, count: int, amount: f
 
     for idx, pr in enumerate(prices):
         for L in book:  # 先成交：涨穿顶格当天，旧网格剩余持仓在此全部兑现
+            if int(L['shares']) <= 0:
+                continue  # 不足一手：现实中无法成交，不参与撮合与活性统计
             if not L['held'] and pr <= L['buy']:
                 L['held'] = True
                 events.append({'i': idx, 'dir': 'buy', 'level': L['level'], 'price': L['buy']})
             elif L['held'] and pr >= L['sell']:
+                if int(L['sell_shares']) <= 0:
+                    continue  # 留利润吞噬全部卖出份额：一股未卖，不计套利回合
                 L['held'] = False
                 realized += L['sell_shares'] * L['sell'] - L['amount']
                 retained += L['retained_shares']

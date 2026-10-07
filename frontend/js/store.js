@@ -159,7 +159,7 @@ export async function loadToday() {
 function maybeNotifyTodos() {
   const n = store.todayData ? store.todayData.todos.length : 0;
   if (!n || !store.notifyEnabled) return;
-  const day = new Date().toISOString().slice(0, 10);
+  const day = API.todayLocal();
   if (localStorage.getItem('etfw_notified') === day) return;
   localStorage.setItem('etfw_notified', day);
   API.post('/api/notify', {

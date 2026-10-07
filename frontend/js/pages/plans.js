@@ -103,14 +103,17 @@ export const plansActions = {
       const extra = r && r.unlinked_trades ? `，${r.unlinked_trades} 笔成交已保留为底仓` : '';
       toast(`计划 <b>#${p.id} ${p.name}</b> 已删除${extra}`, '', {
         label: '撤销', fn: async () => {
-          const re = await API.post('/api/grid/plans', {
-            name: p.name, symbol: p.symbol, symbol_name: p.symbol_name,
-            base_price: p.base_price, grid_step: p.grid_step, grid_count: p.grid_count,
-            amount_per_grid: p.amount_per_grid, step_increase: p.step_increase,
-            profit_retention: p.profit_retention, note: p.note,
-          });
-          await loadPlans();
-          toast(`已恢复为 <b>#${re.id}</b>`);
+          try {
+            const re = await API.post('/api/grid/plans', {
+              name: p.name, symbol: p.symbol, symbol_name: p.symbol_name,
+              base_price: p.base_price, grid_step: p.grid_step, grid_count: p.grid_count,
+              amount_per_grid: p.amount_per_grid, grid_mode: p.grid_mode,
+              shares_per_grid: p.shares_per_grid, step_increase: p.step_increase,
+              profit_retention: p.profit_retention, note: p.note,
+            });
+            await loadPlans();
+            toast(`已恢复为 <b>#${re.id}</b>`);
+          } catch (e) { toast(e.message, 'warn'); }
         },
       });
     } else {
@@ -147,7 +150,7 @@ export const plansActions = {
   openTradeModal(p) {
     store.tradeForm = {
       plan_id: p.id, symbol: p.symbol, symbol_name: p.symbol_name,
-      trade_date: new Date().toISOString().slice(0, 10),
+      trade_date: API.todayLocal(),
       direction: 'buy', price: '', shares: '', fee: '', note: '',
     };
     store.modal = 'trade';

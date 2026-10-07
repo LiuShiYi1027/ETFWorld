@@ -1,8 +1,9 @@
 """
 轮动计划服务：动量轮动的执行侧（实验室验证策略 → 这里负责执行）
 
-规则与实验室 simulate_rotation 同口径：每个调仓周期首日计算品种池近 window
-日动量，满仓最强者；全部动量 ≤ 0 时空仓。待办只提醒，不代操作：
+规则对齐实验室 simulate_rotation 的"周期信号"口径：每个调仓周期内首次
+计算品种池近 window 日动量后锁定（进程内缓存），满仓最强者；全部动量 ≤ 0
+时空仓。待办只提醒，不代操作：
 - switch：先记卖出（旧持仓）再记买入（新目标），两腿都记完本期才算完成
 - enter（空仓→买入）/ exit（清仓）为单腿
 成交记 trades 表 rotation_plan_id=计划ID，当前持仓由成交记录推导。
@@ -43,6 +44,9 @@ class RotationService:
     def __init__(self, trade_service=None):
         from backend.services.trade_service import TradeService
         self.trade = trade_service or TradeService()
+        # (plan_id, period_key) → 本周期已锁定的动量信号，避免周内/月内每日重算
+        # 导致执行序列与实验室"周期首日信号"口径漂移。
+        self._signal_cache: Dict[tuple, Dict] = {}
 
     # ---------- CRUD ----------
     def create_plan(self, params: Dict) -> Dict:
@@ -117,49 +121,82 @@ class RotationService:
     # ---------- 调仓待办 ----------
     def due_todos(self, closes_of, today: Optional[date] = None) -> List[Dict]:
         """closes_of(symbol, days) → 升序收盘价列表（由调用方注入行情）。
-        本期双腿（卖+买）都记完成交后待办消失。"""
+
+        动量信号在每个调仓周期内首次计算后锁定（缓存到 self._signal_cache），
+        避免周内/月内每日重算导致执行序列与实验室周期信号口径漂移。
+        双腿完成态按"标的 + 净额"校验：买错标的、只卖出一部分都不算完成。
+        """
         today = today or date.today()
         todos = []
         for plan in self.list_plans():
             if plan['status'] != 'active':
                 continue
             key = _period_key(today, plan['rebalance'])
-            closes_map = {}
-            for p in plan['pool']:
-                try:
-                    closes_map[p['symbol']] = closes_of(p['symbol'], plan['window'] + 10)
-                except Exception as e:  # noqa: BLE001
-                    logger.warning('轮动行情获取失败 %s: %s', p['symbol'], e)
-            target, mom = rotation_target(closes_map, plan['window'])
-            holding = self.current_holding(plan['id'])
+            sig_key = (plan['id'], key)
+            if sig_key not in self._signal_cache:
+                closes_map, missing = {}, []
+                for p in plan['pool']:
+                    try:
+                        closes = closes_of(p['symbol'], plan['window'] + 10) or []
+                        if len(closes) <= plan['window']:
+                            missing.append(p['symbol'])
+                        closes_map[p['symbol']] = closes
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning('轮动行情获取失败 %s: %s', p['symbol'], e)
+                        missing.append(p['symbol'])
+                target, mom = rotation_target(closes_map, plan['window'])
+                self._signal_cache[sig_key] = {
+                    'target': target, 'momentum': mom, 'missing': missing,
+                }
+            sig = self._signal_cache[sig_key]
+            target, mom, missing = sig['target'], sig['momentum'], sig['missing']
 
-            # 本期已记的方向
-            period_trades = [t for t in self.trade.list_trades(rotation_plan_id=plan['id'])
+            all_trades = self.trade.list_trades(rotation_plan_id=plan['id'])
+            net: Dict[str, float] = {}
+            for t in all_trades:
+                net[t['symbol']] = net.get(t['symbol'], 0.0) + \
+                    (float(t['shares']) if t['direction'] == 'buy' else -float(t['shares']))
+            held = {s: v for s, v in net.items() if v > 1e-6}
+            cur_sym = max(held, key=lambda s: held[s]) if held else None
+            holding = None
+            if cur_sym is not None:
+                name = next((t.get('symbol_name') for t in reversed(all_trades)
+                             if t['symbol'] == cur_sym and t.get('symbol_name')), cur_sym)
+                holding = {'symbol': cur_sym, 'symbol_name': name,
+                           'shares': round(held[cur_sym], 2)}
+
+            # 本期已记的成交（按成交日期所在周期归集）
+            period_trades = [t for t in all_trades
                              if _period_key(datetime.strptime(t['trade_date'], '%Y-%m-%d').date(),
                                             plan['rebalance']) == key]
-            done_dirs = {t['direction'] for t in period_trades}
 
             cur_sym = holding['symbol'] if holding else None
             if target == cur_sym:
                 continue  # 目标与持仓一致（含双空仓），无需动作
+            period_sell_symbols = {t['symbol'] for t in period_trades if t['direction'] == 'sell'}
             need_sell = cur_sym is not None
             need_buy = target is not None
-            sell_pending = need_sell and 'sell' not in done_dirs
-            buy_pending = need_buy and 'buy' not in done_dirs
+            sell_done = bool(period_sell_symbols) and all(
+                net.get(s, 0.0) <= 1e-6 for s in period_sell_symbols)
+            buy_done = need_buy and net.get(target, 0.0) > 1e-6 and any(
+                t['direction'] == 'buy' and t['symbol'] == target for t in period_trades)
+            sell_pending = need_sell and not sell_done
+            buy_pending = need_buy and not buy_done
             if not (sell_pending or buy_pending):
                 continue  # 本期双腿已完成
             pool_names = {p['symbol']: p.get('symbol_name') or p['symbol']
                           for p in plan['pool']}
             todos.append({
                 'rotation_plan_id': plan['id'], 'name': plan['name'],
-                'action': 'switch' if (need_sell and need_buy)
+                'action': 'switch' if ((need_sell or period_sell_symbols) and need_buy)
                           else ('exit' if need_sell else 'enter'),
                 'holding': holding,
                 'target': ({'symbol': target, 'symbol_name': pool_names.get(target),
                             'momentum': mom.get(target)} if target else None),
                 'momentum': mom,
-                'sell_done': 'sell' in done_dirs,
-                'buy_done': 'buy' in done_dirs,
+                'sell_done': sell_done,
+                'buy_done': buy_done,
+                'missing_data': missing,
                 'period_label': '本月' if plan['rebalance'] == 'monthly' else '本周',
                 'window': plan['window'],
             })

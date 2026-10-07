@@ -4,7 +4,7 @@
 import logging
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from backend.config.settings import DATABASE_URL
@@ -17,6 +17,16 @@ engine = create_engine(
     echo=False,
     connect_args={'check_same_thread': False} if DATABASE_URL.startswith('sqlite') else {},
 )
+
+if DATABASE_URL.startswith('sqlite'):
+    @event.listens_for(engine, 'connect')
+    def _sqlite_pragmas(dbapi_conn, _):
+        """桌面单文件库：WAL + 忙等，降低后台线程并发写时的 locked 概率。"""
+        cur = dbapi_conn.cursor()
+        cur.execute('PRAGMA journal_mode=WAL')
+        cur.execute('PRAGMA busy_timeout=5000')
+        cur.execute('PRAGMA synchronous=NORMAL')
+        cur.close()
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False,
                             expire_on_commit=False)

@@ -81,7 +81,7 @@ export const portfolioActions = {
 
   openFundFlow() {
     store.flowForm = {
-      flow_date: new Date().toISOString().slice(0, 10),
+      flow_date: API.todayLocal(),
       direction: 'deposit', amount: '', note: '',
     };
     store.modal = 'fundflow';

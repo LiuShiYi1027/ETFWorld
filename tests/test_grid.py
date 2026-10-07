@@ -215,3 +215,17 @@ class TestSimulateGrid:
         assert r['broken_idx'] is None
         assert r['retained_shares'] == 0
         assert r['invested_pct'] == 0
+
+    def test_zero_lot_levels_do_not_trade(self):
+        """每格金额不足一手时，档位不参与撮合，也不虚增套利次数"""
+        r = simulate_grid([1.0, 0.95, 1.0] * 3, step=5, count=2, amount=50)
+        assert r['events'] == []
+        assert r['trades'] == 0
+        assert r['invested_pct'] == 0
+
+    def test_retention_swallowing_all_sell_shares_counts_no_round(self):
+        """留利润吃掉全部卖出份额：一股未卖，不计套利回合也不转留存"""
+        r = simulate_grid([5.0, 4.75, 5.3], step=5, count=1, amount=500, ret=30)
+        assert r['trades'] == 0
+        assert r['retained_shares'] == 0
+        assert [e['dir'] for e in r['events']] == ['buy']

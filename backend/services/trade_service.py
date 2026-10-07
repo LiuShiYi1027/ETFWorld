@@ -19,9 +19,14 @@ class TradeService:
 
     def add_trade(self, params: Dict) -> Dict:
         with get_session() as session:
-            # 卖出不能超过当前持仓，否则会产生负持仓与错误的收益统计
+            # 卖出不能超过对应账户当前持仓，否则会产生负持仓与错误的收益统计。
+            # 必须按账户口径校验：底仓/网格/定投/轮动分开，不能用底仓份额记网格卖出。
             if params['direction'] == 'sell':
-                held = self._net_shares(session, params['symbol'])
+                held = self._net_shares(
+                    session, params['symbol'],
+                    plan_id=params.get('plan_id'),
+                    dca_plan_id=params.get('dca_plan_id'),
+                    rotation_plan_id=params.get('rotation_plan_id'))
                 if float(params['shares']) > held + 1e-6:
                     raise ValueError(
                         f"卖出 {float(params['shares']):.0f} 份超过当前持仓 {held:.0f} 份")
@@ -51,12 +56,28 @@ class TradeService:
             return self._to_dict(trade)
 
     @staticmethod
-    def _net_shares(session, symbol: str) -> float:
-        """某标的当前净持仓份额 = 累计买入 − 累计卖出"""
+    def _net_shares(session, symbol: str, plan_id=None, dca_plan_id=None,
+                    rotation_plan_id=None) -> float:
+        """某账户当前净持仓份额 = 累计买入 − 累计卖出。
+
+        账户口径与组合页一致：plan_id/dca_plan_id/rotation_plan_id 指定哪个算哪个；
+        三者都为空时只算底仓，避免跨账户挪用份额。
+        """
         def _sum(direction):
-            return float(session.query(func.coalesce(func.sum(TradeTable.shares), 0))
-                         .filter(TradeTable.symbol == symbol,
-                                 TradeTable.direction == direction).scalar() or 0)
+            q = session.query(func.coalesce(func.sum(TradeTable.shares), 0)).filter(
+                TradeTable.symbol == symbol,
+                TradeTable.direction == direction)
+            if plan_id is not None:
+                q = q.filter(TradeTable.plan_id == plan_id)
+            elif dca_plan_id is not None:
+                q = q.filter(TradeTable.dca_plan_id == dca_plan_id)
+            elif rotation_plan_id is not None:
+                q = q.filter(TradeTable.rotation_plan_id == rotation_plan_id)
+            else:
+                q = q.filter(TradeTable.plan_id.is_(None),
+                             TradeTable.dca_plan_id.is_(None),
+                             TradeTable.rotation_plan_id.is_(None))
+            return float(q.scalar() or 0)
         return _sum('buy') - _sum('sell')
 
     def list_trades(self, symbol: str = None, plan_id: int = None,
@@ -79,6 +100,25 @@ class TradeService:
             t = session.get(TradeTable, trade_id)
             if not t:
                 return False
+            # 删除成交也按账户回放校验：删掉一笔买入可能让历史中出现负持仓，
+            # 进而污染移动加权成本与已实现收益。
+            q = session.query(TradeTable).filter(TradeTable.symbol == t.symbol,
+                                                 TradeTable.id != trade_id)
+            if t.plan_id is not None:
+                q = q.filter(TradeTable.plan_id == t.plan_id)
+            elif t.dca_plan_id is not None:
+                q = q.filter(TradeTable.dca_plan_id == t.dca_plan_id)
+            elif t.rotation_plan_id is not None:
+                q = q.filter(TradeTable.rotation_plan_id == t.rotation_plan_id)
+            else:
+                q = q.filter(TradeTable.plan_id.is_(None),
+                             TradeTable.dca_plan_id.is_(None),
+                             TradeTable.rotation_plan_id.is_(None))
+            held = 0.0
+            for row in q.order_by(TradeTable.trade_date, TradeTable.id).all():
+                held += float(row.shares) if row.direction == 'buy' else -float(row.shares)
+                if held < -1e-6:
+                    raise ValueError('删除该成交会导致持仓为负，已拒绝')
             session.delete(t)
             return True
 

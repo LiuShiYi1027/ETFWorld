@@ -322,11 +322,12 @@ class AIService:
         key = ('optimize', ctx.get('symbol'), ctx.get('n'), ctx.get('amount'),
                ctx.get('inc'), ctx.get('ret'))
         if key not in self._cache:
+            valid = [(c.get('step'), c.get('count')) for c in (ctx.get('cells') or [])]
             self._remember(key, self._normalize_optimize(
                 self._parse(self._chat([
                     {"role": "system", "content": _SYSTEM},
                     {"role": "user", "content": _build_optimize_prompt(ctx)},
-                ]))))
+                ])), valid=valid, fallback=ctx.get('best')))
         return self._cache[key]
 
     def discovery_review(self, ctx: Dict) -> Dict:
@@ -386,7 +387,7 @@ class AIService:
         return {"items": items, "source": "ai"}
 
     @staticmethod
-    def _normalize_optimize(data: Dict) -> Dict:
+    def _normalize_optimize(data: Dict, valid=None, fallback: Dict = None) -> Dict:
         def _num(v, default):
             try:
                 return float(v)
@@ -394,12 +395,26 @@ class AIService:
                 return default
         step = _num(data.get("step"), 0)
         count = int(_num(data.get("count"), 0))
+        pairs = {(float(s), int(float(c))) for s, c in (valid or [])
+                 if s is not None and c is not None}
+        snapped = False
+        if pairs and (step, count) not in pairs:
+            fb = fallback or {}
+            fb_step, fb_count = _num(fb.get('step'), 0), int(_num(fb.get('count'), 0))
+            if (fb_step, fb_count) in pairs:
+                step, count = fb_step, fb_count
+            else:
+                step, count = min(pairs, key=lambda p: (p[0] - step) ** 2 + (p[1] - count) ** 2)
+            snapped = True
+        warning = str(data.get("warning", ""))
+        if snapped and not warning.strip():
+            warning = 'AI 推荐参数不在回测矩阵内，已降级为矩阵内有效组合'
         return {
             "step": step,
             "count": count,
             "oneLine": str(data.get("oneLine", ""))[:80],
             "reasons": [str(x)[:60] for x in (data.get("reasons") or [])][:5],
-            "warning": str(data.get("warning", ""))[:100],
+            "warning": warning[:100],
             "source": "ai",
         }
 

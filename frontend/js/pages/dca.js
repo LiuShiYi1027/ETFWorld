@@ -105,7 +105,7 @@ export const dcaActions = {
     store.tradeForm = {
       plan_id: null, dca_plan_id: t.dca_plan_id, dca_period_key: t.period_key,
       symbol: t.symbol, symbol_name: t.symbol_name,
-      trade_date: new Date().toISOString().slice(0, 10),
+      trade_date: API.todayLocal(),
       direction: 'buy',
       price,
       shares: price ? Math.floor(t.amount / price / 100) * 100 : '',

@@ -143,6 +143,15 @@ class TestOptimizeReview:
         assert r1['warning'] == '高位易破网'
         assert r2 is r1 and len(calls) == 1  # 同参数走缓存
 
+    def test_invalid_recommendation_snapped_back_to_matrix(self, svc, monkeypatch):
+        """AI 返回矩阵外/非法参数时，降级为回测 best，不允许把 0/负参数透传前端"""
+        _fake_chat_json(svc, monkeypatch,
+                        {'step': 0, 'count': -3, 'oneLine': '乱推荐',
+                         'reasons': ['幻觉'], 'warning': ''})
+        r = svc.optimize_review(self._CTX)
+        assert (r['step'], r['count']) == (12.0, 14)  # 回测 best
+        assert '降级' in r['warning']
+
     def test_not_configured_raises(self, monkeypatch):
         monkeypatch.setattr(settings, 'AI_API_KEY', '')
         with pytest.raises(AINotConfigured):

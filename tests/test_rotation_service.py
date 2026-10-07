@@ -94,6 +94,47 @@ class TestDueTodos:
                          'price': 1.0, 'shares': 1000, 'rotation_plan_id': p['id']})
         assert svc.due_todos(lambda s, d: _closes(s == 'A'), today=date(2026, 8, 12)) == []
 
+    def test_signal_locked_within_period(self, services):
+        """同一调仓周期内信号锁定：周三行情翻转不改变本周已给目标"""
+        svc, _ = services
+        _make_plan(svc)
+        first = svc.due_todos(lambda s, d: _closes(s == 'A'), today=date(2026, 8, 12))
+        assert first[0]['target']['symbol'] == 'A'
+        flipped = svc.due_todos(lambda s, d: _closes(s == 'B'), today=date(2026, 8, 13))
+        assert flipped[0]['target']['symbol'] == 'A'  # 仍为本周锁定信号
+
+    def test_wrong_symbol_buy_does_not_complete_buy_leg(self, services):
+        """买错标的不能买腿完成：待办必须保留"""
+        svc, trade = services
+        p = _make_plan(svc)
+        trade.add_trade({'symbol': 'B', 'symbol_name': '乙',
+                         'trade_date': '2026-08-05', 'direction': 'buy',
+                         'price': 1.0, 'shares': 1000, 'rotation_plan_id': p['id']})
+        trade.add_trade({'symbol': 'B', 'symbol_name': '乙',
+                         'trade_date': '2026-08-12', 'direction': 'sell',
+                         'price': 1.0, 'shares': 1000, 'rotation_plan_id': p['id']})
+        trade.add_trade({'symbol': 'C', 'symbol_name': '丙',  # 目标 A，错记成 C
+                         'trade_date': '2026-08-12', 'direction': 'buy',
+                         'price': 1.0, 'shares': 1000, 'rotation_plan_id': p['id']})
+        todos = svc.due_todos(lambda s, d: _closes(s == 'A'), today=date(2026, 8, 12))
+        assert len(todos) == 1
+        assert todos[0]['buy_done'] is False
+        assert todos[0]['target']['symbol'] == 'A'
+
+    def test_partial_sell_does_not_complete_sell_leg(self, services):
+        """只卖出一半旧持仓，卖腿不算完成"""
+        svc, trade = services
+        p = _make_plan(svc)
+        trade.add_trade({'symbol': 'B', 'symbol_name': '乙',
+                         'trade_date': '2026-08-05', 'direction': 'buy',
+                         'price': 1.0, 'shares': 1000, 'rotation_plan_id': p['id']})
+        trade.add_trade({'symbol': 'B', 'symbol_name': '乙',
+                         'trade_date': '2026-08-12', 'direction': 'sell',
+                         'price': 1.0, 'shares': 500, 'rotation_plan_id': p['id']})
+        todos = svc.due_todos(lambda s, d: _closes(s == 'A'), today=date(2026, 8, 12))
+        assert len(todos) == 1
+        assert todos[0]['sell_done'] is False
+
     def test_target_equals_holding_no_todo(self, services):
         svc, trade = services
         p = _make_plan(svc)

@@ -74,9 +74,9 @@ class TestOverview:
         assert ov['cash'] == round(300000 - 80000 - 9660, 2)
         assert ov['accounts']['core']['positions'][0]['shares'] == 20000
         assert ov['accounts']['grid']['positions'][0]['plan_name'] == '测试网格'
-        # 安全线：满格资金 = 9660+9975+9855.3 = 29490.3 → 29490.3/300000
-        assert ov['grid_full_capital'] == 29490.3
-        assert 0.09 < ov['safety_ratio'] < 0.11
+        # 安全线：G1 已买入不再重复计提，剩余补网资金 = G2+G3 = 9975+9855.3
+        assert ov['grid_full_capital'] == 19830.3
+        assert 0.06 < ov['safety_ratio'] < 0.07
         assert ov['safety_warn'] is False
         # 市值口径
         assert ov['accounts']['core']['market_value'] == round(4.65 * 20000, 2)

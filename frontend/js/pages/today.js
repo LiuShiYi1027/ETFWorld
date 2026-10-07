@@ -33,16 +33,19 @@ function alertList() {
 // 上移重开（带估值闸门）：估值>50% 时 toast 升级为警告
 function rebaseWithGate(planSummary) {
   const run = async () => {
-    const plan = await API.get(`/api/grid/plans/${planSummary.plan_id}`);
-    await API.post('/api/grid/plans', {
-      name: plan.name, symbol: plan.symbol, symbol_name: plan.symbol_name,
-      base_price: planSummary.cur, grid_step: plan.grid_step, grid_count: plan.grid_count,
-      amount_per_grid: plan.amount_per_grid, step_increase: plan.step_increase,
-      profit_retention: plan.profit_retention,
-    });
-    await API.patch(`/api/grid/plans/${planSummary.plan_id}/status?status=closed`);
-    toast(`已上移重开 · 新基准价 <b>${planSummary.cur}</b>（旧计划已归档）`);
-    loadPlans(); loadToday();
+    try {
+      const plan = await API.get(`/api/grid/plans/${planSummary.plan_id}`);
+      await API.post('/api/grid/plans', {
+        name: plan.name, symbol: plan.symbol, symbol_name: plan.symbol_name,
+        base_price: planSummary.cur, grid_step: plan.grid_step, grid_count: plan.grid_count,
+        amount_per_grid: plan.amount_per_grid, grid_mode: plan.grid_mode,
+        shares_per_grid: plan.shares_per_grid, step_increase: plan.step_increase,
+        profit_retention: plan.profit_retention,
+      });
+      await API.patch(`/api/grid/plans/${planSummary.plan_id}/status?status=closed`);
+      toast(`已上移重开 · 新基准价 <b>${planSummary.cur}</b>（旧计划已归档）`);
+      loadPlans(); loadToday();
+    } catch (e) { toast(e.message, 'warn'); }
   };
   const idx = store.readiness.find(r =>
     planSummary.symbol_name && planSummary.symbol_name.includes(r.name.replace(/[ⅠⅡⅢ]$/, '')));
@@ -70,7 +73,7 @@ export const todayActions = {
   completeTodo(t) {
     store.tradeForm = {
       plan_id: t.plan_id, symbol: t.symbol, symbol_name: t.symbol_name,
-      trade_date: new Date().toISOString().slice(0, 10),
+      trade_date: API.todayLocal(),
       direction: t.direction, price: t.price, shares: t.shares,
       fee: '', note: `待办成交 · G${t.level}`,
     };

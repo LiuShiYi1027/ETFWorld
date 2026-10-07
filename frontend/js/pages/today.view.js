@@ -70,6 +70,9 @@ export const TodayView = {
             <template v-if="t.target">目标 <b>{{ t.target.symbol_name }}</b>（动量 {{ t.target.momentum }}%）</template>
             <template v-else>池内动量全负，转为空仓</template>
           </div>
+          <div class="sub" v-if="t.missing_data && t.missing_data.length" style="color:#B45309;">
+            行情缺失：{{ t.missing_data.join('、') }} 未参与本期动量比较 · 本期信号已锁定
+          </div>
         </div>
         <div style="white-space:nowrap;">
           <button class="btn sm danger" v-if="t.holding && !t.sell_done" @click="rotRecord(t,'sell')">记卖出</button>
@@ -77,7 +80,7 @@ export const TodayView = {
         </div>
       </div>
     </div>
-    <div class="note">轮动不自动下单。调仓是双腿动作：先记卖出、再记买入，两腿都完成本期待办才消失。</div>
+    <div class="note">轮动不自动下单。调仓是双腿动作：先记卖出、再记买入，两腿都完成本期待办才消失。每个调仓周期的动量信号首次计算后锁定，周期内不随日内行情翻转。</div>
   </div>
 
   <div class="alerts" v-if="alertList().length">

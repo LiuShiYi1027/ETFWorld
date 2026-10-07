@@ -2,8 +2,9 @@
 今日视图服务：待办清单 + 四盏预警灯 + 组合摘要
 
 把原先在前端驾驶舱的 planHealth 逻辑移到服务端，并升级为"执行感知"：
-- 下一买档：低于现价的最高 buy_price，且该档处于"待买"状态（无成交）
-- 下一卖档：高于现价的最低 sell_price，且该档处于"持有"状态（有买未卖）
+- 下一买档：在"可买"档位（wait，或已完成一轮的 sold）里取距现价最近者，
+  价格已穿越档位时优先于更深的未触发档，避免跳空后待办指向错误档位
+- 下一卖档：在"持有"档位里取距现价最近者（向上临近或已穿越都算候选）
 - 距现价 ≤ near_pct（默认 2%）的档位进入今日待办（仅 active 计划；
   paused/broken 保留健康度与预警灯，但不产生买卖待办）
 
@@ -124,17 +125,16 @@ class TodayService:
             return h
 
         states = self.grid_level_states(plan['id'], levels)
-        # 下一买：低于现价的档位里价格最高的"待买"档
-        buy_cands = [l for l, s in zip(levels, states)
-                     if s == 'wait' and float(l['buy_price']) < cur]
+        # 下一买：wait 或已完成一轮的 sold 都可买；取距现价最近者，
+        # 已穿越的浅档优先于更深的未触发档（跳空时待办指向正确档位）
+        buy_cands = [l for l, s in zip(levels, states) if s in ('wait', 'sold')]
         if buy_cands:
-            l = max(buy_cands, key=lambda x: float(x['buy_price']))
+            l = min(buy_cands, key=lambda x: abs(cur - float(x['buy_price'])))
             h['next_buy'] = self._todo(plan, l, 'buy', cur)
-        # 下一卖：高于现价的档位里价格最低的"持有"档
-        sell_cands = [l for l, s in zip(levels, states)
-                      if s == 'hold' and float(l['sell_price']) > cur]
+        # 下一卖：持有档里取距现价最近者（向上临近或已穿越都算候选）
+        sell_cands = [l for l, s in zip(levels, states) if s == 'hold']
         if sell_cands:
-            l = min(sell_cands, key=lambda x: float(x['sell_price']))
+            l = min(sell_cands, key=lambda x: abs(cur - float(x['sell_price'])))
             h['next_sell'] = self._todo(plan, l, 'sell', cur)
         return h
 

@@ -36,7 +36,7 @@ export const onboardActions = {
     store.obBfRunning = true;
     store.obBfLog = '正在回填历史数据（约 1-3 分钟，期间请勿关闭）…';
     try {
-      const end = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const end = API.todayLocal().replace(/-/g, '');
       const start = String(Number(end.slice(0, 4)) - 10) + end.slice(4);  // 近 10 年
       await API.post(`/api/valuation/backfill?start=${start}&end=${end}`);
       store.obBfLog = '✓ 回填完成，估值分位已计算';
