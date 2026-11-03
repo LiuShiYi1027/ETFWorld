@@ -27,6 +27,14 @@ function alertList() {
     chip: x.name, chipCls: x.tier === 'exit' ? 'no' : 'maybe',
     body: `${x.index_name} 估值分位 <b>${x.valuation_percentile}%</b>。${x.verdict}。点进计划可「收网退出」或让 AI 做退出研判。`,
     act: 'exit', plan: { plan_id: x.plan_id } });
+  for (const x of (a.corporate_action || [])) out.push({
+    kind: 'crit', title: '公司行动·暂停旧网格', chip: x.name, chipCls: 'no',
+    body: `${x.symbol_name || x.symbol} 的复权因子在计划创建后发生变化或无法确认。${x.message || '请核对分红/拆分后的价格、份额和档位，人工恢复前不会生成待办。'}`,
+    act: 'plan', plan: x });
+  for (const x of (store.todayData.health || []).filter(h => h.stale)) out.push({
+    kind: 'warnl', title: '行情陈旧·停止待办', chip: x.name, chipCls: 'maybe',
+    body: `${x.symbol_name || x.symbol} 行情日期为 <b>${x.quote_date || '缺失'}</b>，最新市场日期为 <b>${x.as_of_date || '缺失'}</b>。不会用旧价格生成破位预警或买卖待办。`,
+    act: 'plan', plan: x });
   return out;
 }
 

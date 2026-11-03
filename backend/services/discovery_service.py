@@ -3,7 +3,7 @@
 
 在申万一级+二级全部行业指数上做全池扫描，回答"现在哪些品种值得研究网格"：
 - 低估：5 年综合分位（PE/PB 分位均值，与雷达口径一致）< 50
-- 波动充足：近 250 日年化波动率（决定格距大小）
+- 波动适配：近 250 日真实收盘价年化波动率，过低或过高都会降低评分
 - 可交易：能关联到成交额达标的 ETF
 
 评分与雷达同公式（估值 70 + 波动 30）。扫描耗时较长（每只一次历史调用），
@@ -15,7 +15,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional
 
-from backend.services.readiness_service import _annualized_volatility
+from backend.services.readiness_service import _annualized_volatility, _volatility_score
 from backend.services.tushare_init import get_pro
 
 logger = logging.getLogger(__name__)
@@ -39,10 +39,9 @@ def _percentile(history: List[float], current: float) -> Optional[float]:
 
 
 def _score(pct: Optional[float], vol: Optional[float]) -> float:
-    """与雷达同公式：估值安全垫 70 + 波动充足度 30"""
+    """与雷达同公式：估值位置 70 + 有上下限的波动适配度 30"""
     val_score = (100 - pct) / 100 * 70 if pct is not None else 0
-    vol_score = min(vol / 0.40, 1.0) * 30 if vol is not None else 0
-    return round(val_score + vol_score, 1)
+    return round(val_score + _volatility_score(vol), 1)
 
 
 def scan_state() -> Dict:

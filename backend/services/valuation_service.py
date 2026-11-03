@@ -75,6 +75,17 @@ class ValuationService:
         if df is None or df.empty:
             return []
 
+        close_by_date = {}
+        if source != 'sw':
+            prices = self.client.get_index_daily(
+                ts_code=idx['ts_code'], trade_date=trade_date,
+                start_date=start_date, end_date=end_date)
+            if prices is not None and not prices.empty:
+                close_by_date = {
+                    str(price['trade_date']): price.get('close')
+                    for _, price in prices.iterrows()
+                }
+
         records = []
         for _, row in df.iterrows():
             if source == 'sw':
@@ -93,7 +104,7 @@ class ValuationService:
                 rec = dict(
                     ts_code=row['ts_code'],
                     trade_date=str(row['trade_date']),
-                    close_price=None,
+                    close_price=close_by_date.get(str(row['trade_date'])),
                     total_mv=row.get('total_mv'),
                     float_mv=row.get('float_mv'),
                     turnover_rate=row.get('turnover_rate'),
@@ -129,7 +140,13 @@ class ValuationService:
                     ))
                 count += 1
             except IntegrityError:
-                continue
+                # 老库可能已有估值但缺少后来接入的指数收盘价；重复回填时补齐，
+                # 不能用“已存在”把新增数据字段永久跳过。
+                existing = session.query(ValuationTable).filter_by(
+                    ts_code=rec['ts_code'], trade_date=trade_date).first()
+                if existing and existing.close_price is None and rec.get('close_price') is not None:
+                    existing.close_price = rec['close_price']
+                    count += 1
         return count
 
     def update_latest(self, trade_date: str = None) -> Dict:
@@ -230,7 +247,13 @@ class ValuationService:
 
                 current = session.query(ValuationTable).filter_by(
                     ts_code=ts_code, trade_date=target_date).first()
-                if not current or current.pe_ttm is None:
+                if not current:
+                    continue
+                current_pe = (float(current.pe_ttm)
+                              if current.pe_ttm is not None and current.pe_ttm > 0 else None)
+                current_pb = (float(current.pb)
+                              if current.pb is not None and current.pb > 0 else None)
+                if current_pe is None and current_pb is None:
                     continue
 
                 for period, years in PERCENTILE_PERIODS.items():
@@ -242,24 +265,26 @@ class ValuationService:
                         q = q.filter(ValuationTable.trade_date >=
                                      target_date - timedelta(days=365 * years))
                     rows = q.all()
-                    if len(rows) < 30:  # 样本太少不计算
+                    pes = sorted(float(r[0]) for r in rows
+                                 if r[0] is not None and r[0] > 0)
+                    pbs = sorted(float(r[1]) for r in rows
+                                 if r[1] is not None and r[1] > 0)
+                    # 每个指标分别满足最小样本量；PB-only 指数也能计算 PB 分位。
+                    if max(len(pes), len(pbs)) < 30:
                         continue
 
-                    pes = sorted(float(r[0]) for r in rows if r[0] is not None)
-                    pbs = sorted(float(r[1]) for r in rows if r[1] is not None)
-
                     def pct(sorted_vals, v):
-                        if not sorted_vals or v is None:
+                        if len(sorted_vals) < 30 or v is None:
                             return None
-                        below = sum(1 for x in sorted_vals if x <= float(v))
+                        below = sum(1 for x in sorted_vals if x <= v)
                         return round(below / len(sorted_vals) * 100, 2)
 
                     existing = session.query(ValuationPercentileTable).filter_by(
                         ts_code=ts_code, trade_date=target_date, period=period).first()
                     values = dict(
-                        pe_percentile=pct(pes, current.pe_ttm),
-                        pb_percentile=pct(pbs, current.pb),
-                        sample_count=len(rows),
+                        pe_percentile=pct(pes, current_pe),
+                        pb_percentile=pct(pbs, current_pb),
+                        sample_count=max(len(pes), len(pbs)),
                     )
                     if existing:
                         for k, v in values.items():

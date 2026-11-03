@@ -82,7 +82,7 @@ class TestOverview:
         assert ov['accounts']['core']['market_value'] == round(4.65 * 20000, 2)
 
     def test_retained_shares_split(self, services):
-        """网格2.0：档位卖出后净剩余份额记为留存（免费底仓），从网格持仓拆出"""
+        """只有卖出净回款覆盖该档买入成本及费用后，净剩余份额才是零成本留存"""
         pf, grid, trade = services
         plan = _make_plan(grid)
         trade.add_trade({'plan_id': plan['id'], 'symbol': '510300',
@@ -90,11 +90,60 @@ class TestOverview:
                          'price': 4.2, 'shares': 2300, 'grid_level': 1})
         trade.add_trade({'plan_id': plan['id'], 'symbol': '510300',
                          'trade_date': '2026-05-01', 'direction': 'sell',
-                         'price': 4.421, 'shares': 2100, 'grid_level': 1})
+                         'price': 4.7, 'shares': 2100, 'grid_level': 1})
         ov = pf.overview(prices={'510300': 4.65})
         assert ov['accounts']['retained']['shares'] == 200.0
+        assert ov['accounts']['retained']['cost'] == 0.0
         assert ov['accounts']['retained']['market_value'] == round(200 * 4.65, 2)
-        assert ov['accounts']['retained']['items'][0]['plan_name'] == '测试网格'
+        item = ov['accounts']['retained']['items'][0]
+        assert item['plan_name'] == '测试网格'
+        assert item['cost'] == 0.0
+        # 展示拆列不改变总账：剩余成本 840，已实现收益 1050。
+        pos = ov['accounts']['grid']['positions'][0]
+        assert pos['cost'] == 840.0
+        assert pos['realized_pnl'] == 1050.0
+        assert ov['total_realized'] == 1050.0
+
+    @pytest.mark.parametrize('sell_price, expected_realized', [(4.421, 464.1), (4.0, -420.0)])
+    def test_loss_or_uncovered_partial_sale_residual_is_not_retained(
+            self, services, sell_price, expected_realized):
+        """回归：修复前只要有卖出就把亏损残余错误显示为免费底仓"""
+        pf, grid, trade = services
+        plan = _make_plan(grid)
+        trade.add_trade({'plan_id': plan['id'], 'symbol': '510300',
+                         'trade_date': '2026-04-01', 'direction': 'buy',
+                         'price': 4.2, 'shares': 2300, 'grid_level': 1})
+        trade.add_trade({'plan_id': plan['id'], 'symbol': '510300',
+                         'trade_date': '2026-05-01', 'direction': 'sell',
+                         'price': sell_price, 'shares': 2100, 'grid_level': 1})
+        ov = pf.overview(prices={'510300': 4.65})
+        assert ov['accounts']['retained']['shares'] == 0.0
+        assert ov['accounts']['retained']['items'] == []
+        pos = ov['accounts']['grid']['positions'][0]
+        assert pos['retained_shares'] == 0.0
+        assert pos['shares'] == 200.0
+        assert pos['cost'] == 840.0
+        assert pos['realized_pnl'] == expected_realized
+
+    @pytest.mark.parametrize('sell_fee, expected_retained', [(7.0, 100.0), (7.01, 0.0)])
+    def test_retained_cost_recovery_includes_all_fees_at_boundary(
+            self, services, sell_fee, expected_retained):
+        """1010 元买入总成本，卖出毛回款 1017 元：扣费后恰好覆盖才可留存"""
+        pf, grid, trade = services
+        plan = _make_plan(grid)
+        trade.add_trade({'plan_id': plan['id'], 'symbol': '510300',
+                         'trade_date': '2026-04-01', 'direction': 'buy',
+                         'price': 1.0, 'shares': 1000, 'fee': 10.0, 'grid_level': 1})
+        trade.add_trade({'plan_id': plan['id'], 'symbol': '510300',
+                         'trade_date': '2026-05-01', 'direction': 'sell',
+                         'price': 1.13, 'shares': 900, 'fee': sell_fee, 'grid_level': 1})
+        ov = pf.overview(prices={'510300': 1.13})
+        assert ov['accounts']['retained']['shares'] == expected_retained
+        pos = ov['accounts']['grid']['positions'][0]
+        assert pos['shares'] == 100.0
+        assert pos['cost'] == 101.0
+        assert pos['realized_pnl'] == round(108.0 - sell_fee, 2)
+        assert pos['total_fee'] == round(10.0 + sell_fee, 2)
 
     def test_empty_portfolio(self, services):
         pf, _, _ = services

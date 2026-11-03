@@ -58,7 +58,6 @@ class TestDiscoveryScan:
         assert it['valuation_percentile'] < 20
         assert it['volatility'] > 12
         assert it['etf']['ts_code'] == '512800.SH'
-        assert it['score'] > 60
 
     def test_rejects_high_percentile(self):
         items = _run({'801780.SI': _hist(0.76), '801193.SI': _hist(1.3)})
@@ -85,3 +84,34 @@ class TestDiscoveryScan:
         assert st['result']['scanned'] == 3
         assert st['result']['passed'] == 1
         assert st['result']['filters']['max_pct'] == 50.0
+
+    def test_negative_current_pe_does_not_create_low_pe_percentile(self):
+        hist = _hist(0.76)
+        hist[-1]['pe'] = -7.6
+        items = _run({'801780.SI': hist})
+        assert len(items) == 1
+        # PE 不参与综合分位；候选只能由有效 PB 分位产生。
+        assert items[0]['pe'] == -7.6
+        pb_values = [h['pb'] for h in hist if h['pb'] > 0]
+        expected_pb_pct = discovery_service._percentile(pb_values, hist[-1]['pb'])
+        assert items[0]['valuation_percentile'] == expected_pb_pct
+
+    def test_pb_only_history_can_still_be_evaluated(self):
+        hist = _hist(0.76)
+        for row in hist:
+            row['pe'] = None
+        items = _run({'801780.SI': hist})
+        assert len(items) == 1
+        assert items[0]['pe'] is None
+        assert items[0]['valuation_percentile'] < 20
+
+    def test_nonpositive_pe_and_pb_cannot_produce_candidate(self):
+        hist = _hist(0.76)
+        hist[-1].update(pe=-7.6, pb=0)
+        assert _run({'801780.SI': hist}) == []
+
+    def test_score_rejects_more_volatility_is_always_better(self):
+        normal = discovery_service._score(20, 0.25)
+        assert discovery_service._score(20, 0.10) < normal
+        assert discovery_service._score(20, 0.70) < normal
+        assert discovery_service._score(20, 0.90) < discovery_service._score(20, 0.70)

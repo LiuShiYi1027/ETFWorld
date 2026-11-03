@@ -50,6 +50,7 @@ export const store = reactive({
     grid_step: 5, grid_count: 10, grid_mode: 'amount',
     amount_per_grid: 10000, shares_per_grid: 10000,
     step_increase: 0, profit_retention: 0,
+    fee_rate: 0.0003, min_fee: 5, slippage_rate: 0.0005,
   },
   etfQuery: '', etfResults: [],
   plannerPreview: null, plannerLoading: false,

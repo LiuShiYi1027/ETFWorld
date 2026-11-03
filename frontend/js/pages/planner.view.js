@@ -45,6 +45,9 @@ export const PlannerView = {
             <div class="field" v-if="plannerForm.grid_mode==='shares'"><label>每格份额（股）</label><input v-model="plannerForm.shares_per_grid" type="number" step="100" min="100"></div>
             <div class="field"><label>逐格加码 %<span v-if="plannerForm.grid_mode==='shares'">（份额）</span></label><input v-model="plannerForm.step_increase" type="number" min="0" max="50"></div>
             <div class="field"><label>留利润 %（网格 2.0）</label><input v-model="plannerForm.profit_retention" type="number" min="0" max="90"></div>
+            <div class="field"><label>回测佣金率（单边）</label><input v-model="plannerForm.fee_rate" type="number" min="0" max="0.1" step="0.0001"></div>
+            <div class="field"><label>最低佣金（元/笔）</label><input v-model="plannerForm.min_fee" type="number" min="0" step="1"></div>
+            <div class="field"><label>回测滑点率（单边）</label><input v-model="plannerForm.slippage_rate" type="number" min="0" max="0.1" step="0.0005"></div>
           </div>
           <div class="btnrow">
             <button class="btn primary" @click="preview()" :disabled="plannerLoading">重算档位</button>
@@ -58,15 +61,18 @@ export const PlannerView = {
         <div class="card-b">
           <div class="kpis flat" style="grid-template-columns:repeat(2,1fr);margin-bottom:0;">
             <div class="kpi"><div class="k">满格资金</div><div class="v sm warm">{{ fmt(plannerPreview.pressure_test.total_capital,0) }}</div><div class="f">最深 -{{ plannerPreview.pressure_test.max_fall_pct }}%</div></div>
-            <div class="kpi"><div class="k">满格浮亏</div><div class="v sm bad">{{ fmt(plannerPreview.pressure_test.max_unrealized_loss,0) }}</div><div class="f">{{ plannerPreview.pressure_test.max_unrealized_loss_pct }}% · 最低 {{ plannerPreview.pressure_test.lowest_price }}</div></div>
+            <div class="kpi"><div class="k">最低档浮亏</div><div class="v sm bad">{{ fmt(plannerPreview.pressure_test.bottom_unrealized_loss,0) }}</div><div class="f">{{ plannerPreview.pressure_test.bottom_unrealized_loss_pct }}% · 最低 {{ plannerPreview.pressure_test.lowest_price }}</div></div>
+          </div>
+          <div v-for="s in plannerPreview.pressure_test.post_break_scenarios" :key="s.decline_pct" class="sub" style="margin-top:6px;color:var(--red-ink);">
+            破网后再跌 {{ s.decline_pct }}%：浮亏 {{ fmt(s.unrealized_loss,0) }}（{{ s.unrealized_loss_pct }}%）
           </div>
         </div>
-        <div class="note">先算最坏情况再开网：满格资金是你最多要掏的钱，满格浮亏是那一刻的账面。</div>
+        <div class="note">最低档浮亏不是最大损失；破网后的继续下跌场景必须单独承受。</div>
       </div>
       <div class="card" v-if="plannerOpt">
         <div class="card-h">
           <div class="t">参数寻优</div>
-          <div class="d">{{ Math.round(plannerLookback/250) }} 年真实行情 · 按 score = 收益 − 0.45×回撤 排序 · 成交 &lt;{{ plannerOpt.low_activity_trades }} 次标「低活性」</div>
+          <div class="d">费后收益 − 0.45×NAV回撤 · 70%训练 / 30%时序样本外 · 当前展示样本外结果</div>
         </div>
         <div class="card-b" style="padding-left:10px;padding-right:10px;">
           <table>
@@ -184,7 +190,7 @@ export const PlannerView = {
         </table>
       </div>
     </div>
-    <div class="note">基于真实历史价格的模拟，未计手续费与滑点；仅用于理解策略特性，不代表未来收益。三角标记为静态口径的买卖点。</div>
+    <div class="note">基于真实历史价格的费后模拟：单边佣金率 {{ plannerForm.fee_rate * 100 }}%（最低 {{ plannerForm.min_fee }} 元/笔），单边滑点 {{ plannerForm.slippage_rate * 100 }}%；仅用于研究，不代表未来收益。</div>
   </div>
   <div class="card" v-if="btLoading"><div class="card-b"><div class="ai-loading">正在拉取历史行情回测…</div></div></div>
 </section>

@@ -181,6 +181,25 @@ class RotationPlanTable(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
+class RotationSignalTable(Base):
+    """轮动周期信号：按周期首个交易日持久化，重启后仍可审计复现。"""
+    __tablename__ = 'rotation_signals'
+    __table_args__ = (
+        UniqueConstraint('rotation_plan_id', 'period_key', name='uq_rotation_signal_period'),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    rotation_plan_id = Column(Integer, ForeignKey('rotation_plans.id'), nullable=False)
+    period_key = Column(String(16), nullable=False, comment='周期键，如 2026-W33 / 2026-08')
+    signal_date = Column(Date, nullable=False, comment='周期首个可交易日')
+    market_date = Column(Date, nullable=False, comment='计算动量所用收盘价日期')
+    earliest_trade_date = Column(Date, comment='信号后的首个可交易日')
+    target = Column(String(20), comment='目标标的；NULL 表示空仓')
+    momentum = Column(JSON, nullable=False, comment='未舍入动量百分比 {symbol: value}')
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
 class ResearchNoteTable(Base):
     """研究笔记：实验室回测结论的快照（spec 可复现重放，不存曲线）"""
     __tablename__ = 'research_notes'

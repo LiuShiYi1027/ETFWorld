@@ -112,48 +112,65 @@ def derive_level_states(levels: List[Dict], trades) -> List[str]:
     """
     由成交记录推导每档执行状态（棋盘四态）：
     - wait  待买：无任何成交
-    - hold  持有：有买入、还没卖出
-    - sold  已卖：买卖相抵（网格1.0 的完成态）
-    - keep  留存：卖出后仍有净剩余份额（网格2.0 留利润的免费底仓）
+    - hold  持有：仍有净剩余，但卖出净回款尚未覆盖该档买入成本及全部费用
+    - sold  已卖：买卖份额相抵（网格1.0 的完成态）
+    - keep  留存：仍有净剩余，且卖出净回款已覆盖买入成本及全部费用
 
-    trades 为 TradeTable ORM 行（只需 direction / shares / grid_level 三个字段）。
+    trades 为 TradeTable ORM 行（需要 direction / shares / grid_level / price / fee）。
     """
-    bought: Dict[int, float] = {}
-    sold: Dict[int, float] = {}
+    # level → [买入份额, 卖出份额, 买入成本(含费), 卖出净回款(扣费)]
+    totals: Dict[int, List[float]] = {}
     for t in trades:
         if t.grid_level is None:
             continue
-        bucket = bought if t.direction == 'buy' else sold
-        bucket[t.grid_level] = bucket.get(t.grid_level, 0.0) + float(t.shares)
+        bucket = totals.setdefault(t.grid_level, [0.0, 0.0, 0.0, 0.0])
+        price, shares, fee = float(t.price), float(t.shares), float(t.fee or 0)
+        if t.direction == 'buy':
+            bucket[0] += shares
+            bucket[2] += price * shares + fee
+        else:
+            bucket[1] += shares
+            bucket[3] += price * shares - fee
     states = []
     for l in levels:
-        lv = l.get('level')
-        b, s = bought.get(lv, 0.0), sold.get(lv, 0.0)
+        b, s, buy_cost, net_proceeds = totals.get(l.get('level'), [0.0, 0.0, 0.0, 0.0])
         if b <= 0:
             states.append('wait')
-        elif s <= 0:
-            states.append('hold')
-        elif b - s > 1e-6:
+        elif b - s <= 1e-6:
+            states.append('sold')
+        elif s > 0 and net_proceeds + 1e-6 >= buy_cost:
             states.append('keep')
         else:
-            states.append('sold')
+            states.append('hold')
     return states
 
 
 def pressure_test(levels: List[Dict], base_price: float) -> Dict:
-    """
-    压力测试：若全部网格被触发（跌到最深一格），需要多少资金、浮亏多少
-    """
+    """满格最低档指标，以及破网后继续下跌 25%/50%/100% 的尾部压力。"""
     if not levels:
         return {}
     total_capital = sum(l['amount'] for l in levels)
     total_shares = sum(l['shares'] for l in levels)
     lowest_price = levels[-1]['buy_price']
     max_fall = levels[-1]['fall_pct']
-    # 全部成交后，按最低价计算的持仓市值与浮亏
     market_value = round(total_shares * lowest_price, 2)
     avg_cost = round(total_capital / total_shares, 4) if total_shares else 0
     unrealized_loss = round(market_value - total_capital, 2)
+    unrealized_loss_pct = (round(unrealized_loss / total_capital * 100, 2)
+                           if total_capital else 0)
+    post_break_scenarios = []
+    for decline_pct in (25, 50, 100):
+        scenario_price = round(lowest_price * (1 - decline_pct / 100), 4)
+        scenario_value = round(total_shares * scenario_price, 2)
+        scenario_loss = round(scenario_value - total_capital, 2)
+        post_break_scenarios.append({
+            'decline_pct': decline_pct,
+            'price': scenario_price,
+            'market_value': scenario_value,
+            'unrealized_loss': scenario_loss,
+            'unrealized_loss_pct': round(scenario_loss / total_capital * 100, 2)
+            if total_capital else 0,
+        })
     return {
         'total_capital': round(total_capital, 2),
         'total_shares': total_shares,
@@ -161,9 +178,12 @@ def pressure_test(levels: List[Dict], base_price: float) -> Dict:
         'lowest_price': lowest_price,
         'avg_cost': avg_cost,
         'market_value_at_bottom': market_value,
+        'bottom_unrealized_loss': unrealized_loss,
+        'bottom_unrealized_loss_pct': unrealized_loss_pct,
+        # 兼容旧调用方；这两个键只是最低档浮亏，并不代表破网后的最大损失。
         'max_unrealized_loss': unrealized_loss,
-        'max_unrealized_loss_pct': round(unrealized_loss / total_capital * 100, 2)
-        if total_capital else 0,
+        'max_unrealized_loss_pct': unrealized_loss_pct,
+        'post_break_scenarios': post_break_scenarios,
     }
 
 

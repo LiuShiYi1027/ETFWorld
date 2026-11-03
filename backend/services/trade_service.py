@@ -5,8 +5,6 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from sqlalchemy import func
-
 from backend.models.database import GridPlanTable, TradeTable
 from backend.services.grid_service import match_grid_level
 from backend.utils.db import get_session
@@ -19,17 +17,6 @@ class TradeService:
 
     def add_trade(self, params: Dict) -> Dict:
         with get_session() as session:
-            # 卖出不能超过对应账户当前持仓，否则会产生负持仓与错误的收益统计。
-            # 必须按账户口径校验：底仓/网格/定投/轮动分开，不能用底仓份额记网格卖出。
-            if params['direction'] == 'sell':
-                held = self._net_shares(
-                    session, params['symbol'],
-                    plan_id=params.get('plan_id'),
-                    dca_plan_id=params.get('dca_plan_id'),
-                    rotation_plan_id=params.get('rotation_plan_id'))
-                if float(params['shares']) > held + 1e-6:
-                    raise ValueError(
-                        f"卖出 {float(params['shares']):.0f} 份超过当前持仓 {held:.0f} 份")
             # 关联计划且未指定档位时，按方向与价格自动匹配最近档位（容差 ±1.5%）
             grid_level = params.get('grid_level')
             if params.get('plan_id') and grid_level is None:
@@ -37,6 +24,15 @@ class TradeService:
                 if plan and plan.levels:
                     grid_level = match_grid_level(
                         plan.levels, params['direction'], float(params['price']))
+            if params.get('plan_id') is not None:
+                plan = session.get(GridPlanTable, params['plan_id'])
+                if plan is None:
+                    raise ValueError('网格交易关联的计划不存在')
+                if params['symbol'] != plan.symbol:
+                    raise ValueError('网格交易标的与计划标的不一致')
+                valid_levels = {level.get('level') for level in (plan.levels or [])}
+                if grid_level not in valid_levels:
+                    raise ValueError('网格交易必须指定计划内的有效档位')
             trade = TradeTable(
                 plan_id=params.get('plan_id'),
                 symbol=params['symbol'],
@@ -53,32 +49,43 @@ class TradeService:
             )
             session.add(trade)
             session.flush()
+            # 新成交可能补录在过去，不能只检查最终净持仓；必须连同本笔按日期全序列回放。
+            self._validate_position_timeline(
+                session, trade.symbol, plan_id=trade.plan_id,
+                dca_plan_id=trade.dca_plan_id, rotation_plan_id=trade.rotation_plan_id,
+                error_message='卖出超过当前持仓或历史可用份额，已拒绝')
+            if trade.direction == 'sell' and trade.plan_id is not None:
+                self._validate_position_timeline(
+                    session, trade.symbol, plan_id=trade.plan_id,
+                    grid_level=trade.grid_level,
+                    error_message='卖出超过该网格档位持仓，已拒绝')
             return self._to_dict(trade)
 
     @staticmethod
-    def _net_shares(session, symbol: str, plan_id=None, dca_plan_id=None,
-                    rotation_plan_id=None) -> float:
-        """某账户当前净持仓份额 = 累计买入 − 累计卖出。
-
-        账户口径与组合页一致：plan_id/dca_plan_id/rotation_plan_id 指定哪个算哪个；
-        三者都为空时只算底仓，避免跨账户挪用份额。
-        """
-        def _sum(direction):
-            q = session.query(func.coalesce(func.sum(TradeTable.shares), 0)).filter(
-                TradeTable.symbol == symbol,
-                TradeTable.direction == direction)
-            if plan_id is not None:
-                q = q.filter(TradeTable.plan_id == plan_id)
-            elif dca_plan_id is not None:
-                q = q.filter(TradeTable.dca_plan_id == dca_plan_id)
-            elif rotation_plan_id is not None:
-                q = q.filter(TradeTable.rotation_plan_id == rotation_plan_id)
-            else:
-                q = q.filter(TradeTable.plan_id.is_(None),
-                             TradeTable.dca_plan_id.is_(None),
-                             TradeTable.rotation_plan_id.is_(None))
-            return float(q.scalar() or 0)
-        return _sum('buy') - _sum('sell')
+    def _validate_position_timeline(session, symbol: str, plan_id=None, dca_plan_id=None,
+                                    rotation_plan_id=None, grid_level=None, exclude_id=None,
+                                    error_message='成交会导致历史持仓为负，已拒绝') -> None:
+        """按 trade_date/id 回放指定账户，任何时点都不允许负持仓。"""
+        q = session.query(TradeTable).filter(TradeTable.symbol == symbol)
+        if plan_id is not None:
+            q = q.filter(TradeTable.plan_id == plan_id)
+        elif dca_plan_id is not None:
+            q = q.filter(TradeTable.dca_plan_id == dca_plan_id)
+        elif rotation_plan_id is not None:
+            q = q.filter(TradeTable.rotation_plan_id == rotation_plan_id)
+        else:
+            q = q.filter(TradeTable.plan_id.is_(None),
+                         TradeTable.dca_plan_id.is_(None),
+                         TradeTable.rotation_plan_id.is_(None))
+        if grid_level is not None:
+            q = q.filter(TradeTable.grid_level == grid_level)
+        if exclude_id is not None:
+            q = q.filter(TradeTable.id != exclude_id)
+        held = 0.0
+        for row in q.order_by(TradeTable.trade_date, TradeTable.id).all():
+            held += float(row.shares) if row.direction == 'buy' else -float(row.shares)
+            if held < -1e-6:
+                raise ValueError(error_message)
 
     def list_trades(self, symbol: str = None, plan_id: int = None,
                     dca_plan_id: int = None, rotation_plan_id: int = None) -> List[Dict]:
@@ -100,25 +107,16 @@ class TradeService:
             t = session.get(TradeTable, trade_id)
             if not t:
                 return False
-            # 删除成交也按账户回放校验：删掉一笔买入可能让历史中出现负持仓，
-            # 进而污染移动加权成本与已实现收益。
-            q = session.query(TradeTable).filter(TradeTable.symbol == t.symbol,
-                                                 TradeTable.id != trade_id)
-            if t.plan_id is not None:
-                q = q.filter(TradeTable.plan_id == t.plan_id)
-            elif t.dca_plan_id is not None:
-                q = q.filter(TradeTable.dca_plan_id == t.dca_plan_id)
-            elif t.rotation_plan_id is not None:
-                q = q.filter(TradeTable.rotation_plan_id == t.rotation_plan_id)
-            else:
-                q = q.filter(TradeTable.plan_id.is_(None),
-                             TradeTable.dca_plan_id.is_(None),
-                             TradeTable.rotation_plan_id.is_(None))
-            held = 0.0
-            for row in q.order_by(TradeTable.trade_date, TradeTable.id).all():
-                held += float(row.shares) if row.direction == 'buy' else -float(row.shares)
-                if held < -1e-6:
-                    raise ValueError('删除该成交会导致持仓为负，已拒绝')
+            # 删除成交同样全序列回放；网格还要防止用其他档位份额掩盖本档裸卖空。
+            self._validate_position_timeline(
+                session, t.symbol, plan_id=t.plan_id, dca_plan_id=t.dca_plan_id,
+                rotation_plan_id=t.rotation_plan_id, exclude_id=trade_id,
+                error_message='删除该成交会导致持仓为负，已拒绝')
+            if t.plan_id is not None and t.grid_level is not None:
+                self._validate_position_timeline(
+                    session, t.symbol, plan_id=t.plan_id, grid_level=t.grid_level,
+                    exclude_id=trade_id,
+                    error_message='删除该成交会导致网格档位持仓为负，已拒绝')
             session.delete(t)
             return True
 

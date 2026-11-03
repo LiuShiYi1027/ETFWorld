@@ -11,6 +11,8 @@ function formParams() {
     amount_per_grid: parseFloat(f.amount_per_grid),
     shares_per_grid: parseFloat(f.shares_per_grid),
     step_increase: parseFloat(f.step_increase || 0), profit_retention: parseFloat(f.profit_retention || 0),
+    fee_rate: parseFloat(f.fee_rate || 0), min_fee: parseFloat(f.min_fee || 0),
+    slippage_rate: parseFloat(f.slippage_rate || 0),
   };
 }
 function validateForm() {
@@ -58,7 +60,10 @@ async function runBacktest() {
   try {
     store.plannerBt = await API.post('/api/grid/backtest', { ...p, lookback_days: store.plannerLookback, anchor: store.plannerAnchor, compare_rebase: store.compareRebase });
     nextTick(() => renderBtChart(store.plannerBt));
-  } catch { store.plannerBt = { error: true }; }
+  } catch (e) {
+    store.plannerBt = { error: true };
+    toast('回测失败 · ' + e.message, 'warn');
+  }
   finally { store.btLoading = false; }
 }
 
@@ -206,6 +211,9 @@ export const plannerActions = {
         amount_per_grid: parseFloat(store.plannerForm.amount_per_grid),
         step_increase: parseFloat(store.plannerForm.step_increase || 0),
         profit_retention: parseFloat(store.plannerForm.profit_retention || 0),
+        fee_rate: parseFloat(store.plannerForm.fee_rate || 0),
+        min_fee: parseFloat(store.plannerForm.min_fee || 0),
+        slippage_rate: parseFloat(store.plannerForm.slippage_rate || 0),
         lookback_days: store.plannerLookback,
       });
     } catch (e) { toast('AI 解读失败 · ' + e.message, 'warn'); }
@@ -229,9 +237,14 @@ export const plannerActions = {
     store.plannerSeed = null;
     store.plannerForm.grid_step = seed.step || store.plannerForm.grid_step;
     try {
-      const etfs = await API.get(`/api/etf/for/${encodeURIComponent(seed.ts_code)}`);
-      if (etfs && etfs.length) pickEtf(etfs[0]);
-      else toast(`未找到跟踪 ${seed.name} 的 ETF，请手动搜索`, 'warn');
-    } catch { /* 忽略，手填 */ }
+      const result = await API.get(`/api/etf/for/${encodeURIComponent(seed.ts_code)}`);
+      const verified = (result.etfs || []).filter(e => e.is_exact_tracking);
+      if (result.mapping_status === 'verified' && verified.length) pickEtf(verified[0]);
+      else {
+        store.etfQuery = result.keyword || seed.name;
+        store.etfResults = result.etfs || [];
+        toast(`「${seed.name}」只有行业名称候选，未验证跟踪指数；请手动确认 ETF`, 'warn');
+      }
+    } catch { /* 无映射服务时保留手动搜索 */ }
   },
 };

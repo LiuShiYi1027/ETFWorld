@@ -11,7 +11,8 @@ import logging
 from typing import Dict, List, Optional
 
 from backend.models.database import ResearchNoteTable
-from backend.services.backtest_service import (simulate_dca, simulate_grid,
+from backend.services.backtest_service import (_resolve_costs, _simulate_hold,
+                                               simulate_dca, simulate_grid,
                                                simulate_rotation)
 from backend.services.dca_service import DcaService
 from backend.utils.db import get_session
@@ -27,7 +28,7 @@ _SERIES_STYLE = {
 
 
 def _max_dd(nav: List[float]) -> float:
-    peak, dd = -1e18, 0.0
+    peak, dd = 1.0, 0.0
     for v in nav:
         peak = max(peak, v)
         if peak > 0:
@@ -40,19 +41,17 @@ class LabService:
 
     # ---------- 对擂 ----------
     def compare(self, params: Dict, bars_of) -> Dict:
-        """
-        params.kind = 'single'：单品种对擂（symbol + strategies ∈ hold/grid/dca）
-                     'rotation'：轮动沙盒（pool 2-6 只 + window + rebalance）
-        bars_of: symbol → [(date, close)]，由调用方注入（API 层取行情）。
-        """
+        """所有策略共享预算；网格、定投、轮动采用一致的费后现金口径。"""
         kind = params.get('kind', 'single')
         lookback = int(params.get('lookback_days', 750))
         budget = float(params.get('budget') or 100000)
+        costs = _resolve_costs(*(params.get(k) for k in
+                                 ('fee_rate', 'min_fee', 'slippage_rate')))
         if kind == 'rotation':
-            return self._compare_rotation(params, bars_of, lookback, budget)
-        return self._compare_single(params, bars_of, lookback, budget)
+            return self._compare_rotation(params, bars_of, lookback, budget, costs)
+        return self._compare_single(params, bars_of, lookback, budget, costs)
 
-    def _compare_single(self, params, bars_of, lookback, budget) -> Dict:
+    def _compare_single(self, params, bars_of, lookback, budget, costs) -> Dict:
         symbol = params['symbol']
         bars = bars_of(symbol, lookback)
         if len(bars) < 60:
@@ -63,45 +62,55 @@ class LabService:
         series = []
 
         if 'hold' in strategies:
-            nav = [round(p / prices[0], 4) for p in prices]
+            hold = _simulate_hold(prices, costs, budget)
+            nav = [round(v / budget, 4) for v in hold['account']]
             series.append({**_SERIES_STYLE['hold'], 'key': 'hold', 'nav': nav,
-                           'stats': {'ret': round((nav[-1] - 1) * 100, 2),
-                                     'max_dd': _max_dd(nav), 'trades': 1,
-                                     'final_value': round(budget * nav[-1], 2)}})
+                           'events': hold['events'],
+                           'stats': {'ret': hold['ret'], 'max_dd': _max_dd(nav),
+                                     'trades': 1, 'final_value': hold['final_value'],
+                                     'costs': hold['costs']}})
 
         if 'grid' in strategies:
             g = params.get('grid') or {}
             r = simulate_grid(
                 prices, float(g.get('grid_step', 5)), int(g.get('grid_count', 10)),
-                float(g.get('amount_per_grid', 10000)))
-            nav = [round(1 + v / 100, 4) for v in r['g']]
+                float(g.get('amount_per_grid', 10000)), budget=budget, **costs)
+            nav = [round(v / budget, 4) for v in r['account']]
             series.append({**_SERIES_STYLE['grid'], 'key': 'grid', 'nav': nav,
+                           'events': r['events'],
                            'stats': {'ret': r['grid_ret'], 'max_dd': r['max_dd'],
                                      'trades': r['trades'],
                                      'invested_pct': r['invested_pct'],
-                                     'final_value': round(budget * nav[-1], 2)}})
+                                     'final_value': r['final_value'],
+                                     'costs': r['costs']}})
 
         if 'dca' in strategies:
             d = params.get('dca') or {}
             _, hist = DcaService().valuation_history(params.get('symbol_name'))
             r = simulate_dca(bars, hist, float(d.get('base_amount', 2000)),
                              d.get('frequency') or 'weekly', enhanced=True,
-                             budget=budget)  # 对擂口径：投入不得超出预算
+                             budget=budget, **costs)
             nav = [round(((budget - c) + v) / budget, 4)
                    for c, v in zip(r['cost'], r['value'])]
+            final_value = budget - r['total_invested'] + r['final_value']
             series.append({**_SERIES_STYLE['dca'], 'key': 'dca', 'nav': nav,
-                           'has_valuation': bool(hist),
-                           'stats': {'ret': round((nav[-1] - 1) * 100, 2),
+                           'has_valuation': bool(hist), 'events': r['events'],
+                           'stats': {'ret': round((final_value / budget - 1) * 100, 2),
                                      'max_dd': _max_dd(nav),
                                      'trades': r['periods_invested'],
                                      'invested': r['total_invested'],
-                                     'final_value': round(budget * nav[-1], 2)}})
+                                     'return_pct': r['return_pct'],
+                                     'return_pct_basis': r['return_pct_basis'],
+                                     'xirr': r['xirr'], 'xirr_basis': r['xirr_basis'],
+                                     'final_value': round(final_value, 2),
+                                     'costs': r['costs']}})
 
         return {'kind': 'single', 'symbol': symbol,
                 'symbol_name': params.get('symbol_name'),
-                'dates': dates, 'budget': budget, 'series': series}
+                'dates': dates, 'budget': budget, 'series': series,
+                'cost_assumptions': costs}
 
-    def _compare_rotation(self, params, bars_of, lookback, budget) -> Dict:
+    def _compare_rotation(self, params, bars_of, lookback, budget, costs) -> Dict:
         pool = params.get('pool') or []
         if not (2 <= len(pool) <= 6):
             raise ValueError('轮动品种池需要 2-6 只 ETF')
@@ -117,7 +126,7 @@ class LabService:
         window = int(params.get('window', 20))
         rebalance = params.get('rebalance') or 'weekly'
         r = simulate_rotation(bars_map, window=window,
-                              rebalance=rebalance, budget=budget)
+                              rebalance=rebalance, budget=budget, **costs)
         if not r['dates']:
             raise ValueError('品种池交易日交集过短，无法回测')
         nav = [round(v / budget, 4) for v in r['account']]
@@ -125,20 +134,21 @@ class LabService:
                    'stats': {'ret': r['ret'], 'max_dd': r['max_dd'],
                              'trades': r['switches'],
                              'final_value': r['final_value'],
-                             'holding': r['holding']}}]
-        # 池内各品种持有曲线作参照
+                             'holding': r['holding'], 'costs': r['costs']}}]
         for sym, bars in bars_map.items():
             px = dict(bars)
-            ref = [round(px[d] / px[r['dates'][0]], 4) for d in r['dates']]
+            hold = _simulate_hold([px[d] for d in r['dates']], costs, budget)
+            ref = [round(v / budget, 4) for v in hold['account']]
             series.append({'key': f'hold_{sym}', 'name': f'持有·{names[sym]}',
-                           'color': '#D6D3CB', 'nav': ref,
-                           'stats': {'ret': round((ref[-1] - 1) * 100, 2),
-                                     'max_dd': _max_dd(ref), 'trades': 1,
-                                     'final_value': round(budget * ref[-1], 2)}})
+                           'color': '#D6D3CB', 'nav': ref, 'events': hold['events'],
+                           'stats': {'ret': hold['ret'], 'max_dd': _max_dd(ref),
+                                     'trades': 1, 'final_value': hold['final_value'],
+                                     'costs': hold['costs']}})
         return {'kind': 'rotation', 'pool': [{'symbol': s, 'symbol_name': names[s]}
                                              for s in bars_map],
                 'dates': r['dates'], 'budget': budget, 'series': series,
-                'events': r['events'], 'window': window, 'rebalance': rebalance}
+                'events': r['events'], 'window': window, 'rebalance': rebalance,
+                'cost_assumptions': costs, 'execution': r['execution']}
 
     # ---------- 研究笔记 ----------
     def save_note(self, params: Dict) -> Dict:

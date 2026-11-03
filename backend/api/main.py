@@ -450,6 +450,9 @@ class BacktestParams(BaseModel):
     shares_per_grid: Optional[float] = Field(default=None)
     step_increase: float = Field(default=0, ge=0, le=100)
     profit_retention: float = Field(default=0, ge=0, le=100)
+    fee_rate: float = Field(default=settings.BACKTEST_FEE_RATE, ge=0, le=0.10)
+    min_fee: float = Field(default=settings.BACKTEST_MIN_FEE, ge=0, le=1000)
+    slippage_rate: float = Field(default=settings.BACKTEST_SLIPPAGE_RATE, ge=0, le=0.10)
     lookback_days: int = Field(default=750, ge=20, le=1500)
     anchor: str = Field(default='window', pattern='^(window|cross)$')
     compare_rebase: bool = True  # 附带「自动上移重开」对比口径
@@ -463,12 +466,15 @@ def grid_backtest(p: BacktestParams):
             raise HTTPException(400, '等份额模式下每格份额需 ≥ 100（1 手）')
     elif not p.amount_per_grid or p.amount_per_grid <= 0:
         raise HTTPException(400, '每格金额必须大于 0')
-    bars = etf_service.daily_bars(p.symbol, p.lookback_days)
-    if len(bars) < 20:
-        raise HTTPException(400, '历史数据不足 · 请确认标的代码正确且已配置数据源')
-    dates = [d for d, _ in bars]
-    prices = [c for _, c in bars]
-    return backtest_service.backtest(p.dict(), prices, dates)
+    try:
+        bars = etf_service.daily_bars(p.symbol, p.lookback_days)
+        if len(bars) < 20:
+            raise ValueError('历史数据不足，至少需要 20 个有效交易日')
+        dates = [d for d, _ in bars]
+        prices = [c for _, c in bars]
+        return backtest_service.backtest(p.dict(), prices, dates)
+    except ValueError as e:
+        raise HTTPException(400, f'回测数据不可用：{e}')
 
 
 @app.post('/api/grid/optimize')
@@ -476,10 +482,13 @@ def grid_optimize(p: BacktestParams):
     """间距×格数参数寻优，基于同一段真实历史价格（按等金额口径）"""
     if not p.amount_per_grid or p.amount_per_grid <= 0:
         raise HTTPException(400, '参数寻优按等金额口径，每格金额必须大于 0')
-    prices = etf_service.daily_closes(p.symbol, p.lookback_days)
-    if len(prices) < 20:
-        raise HTTPException(400, '历史数据不足 · 请确认标的代码正确且已配置 TUSHARE_TOKEN')
-    return backtest_service.optimize(p.dict(), prices)
+    try:
+        prices = etf_service.daily_closes(p.symbol, p.lookback_days)
+        if len(prices) < 20:
+            raise ValueError('历史数据不足，至少需要 20 个有效交易日')
+        return backtest_service.optimize(p.dict(), prices)
+    except ValueError as e:
+        raise HTTPException(400, f'寻优数据不可用：{e}')
 
 
 class BreakActionParams(BaseModel):
@@ -593,15 +602,21 @@ class DcaBacktestParams(BaseModel):
     base_amount: float = Field(gt=0)
     frequency: str = Field(default='weekly', pattern='^(weekly|monthly)$')
     lookback_days: int = Field(default=750, ge=60, le=2500)
+    fee_rate: float = Field(default=settings.BACKTEST_FEE_RATE, ge=0, le=0.10)
+    min_fee: float = Field(default=settings.BACKTEST_MIN_FEE, ge=0, le=1000)
+    slippage_rate: float = Field(default=settings.BACKTEST_SLIPPAGE_RATE, ge=0, le=0.10)
 
 
 @app.post('/api/dca/backtest')
 def dca_backtest(p: DcaBacktestParams):
-    """定投回测：普通定投 vs 估值增强定投对比（每期首个交易日买入）"""
-    bars = etf_service.daily_bars(p.symbol, p.lookback_days)
-    if len(bars) < 20:
-        raise HTTPException(400, '历史数据不足 · 请确认标的代码正确且已配置数据源')
-    return dca_service.backtest(p.dict(), bars)
+    """定投回测：信号确认后的下一交易日买入，使用费后账户与 XIRR。"""
+    try:
+        bars = etf_service.daily_bars(p.symbol, p.lookback_days)
+        if len(bars) < 20:
+            raise ValueError('历史数据不足，至少需要 20 个有效交易日')
+        return dca_service.backtest(p.dict(), bars)
+    except ValueError as e:
+        raise HTTPException(400, f'回测数据不可用：{e}')
 
 
 # ---------- 策略实验室 ----------
@@ -618,6 +633,9 @@ class LabCompareParams(BaseModel):
     rebalance: str = Field(default='weekly', pattern='^(weekly|monthly)$')
     lookback_days: int = Field(default=750, ge=60, le=2500)
     budget: float = Field(default=100000, gt=0)
+    fee_rate: float = Field(default=settings.BACKTEST_FEE_RATE, ge=0, le=0.10)
+    min_fee: float = Field(default=settings.BACKTEST_MIN_FEE, ge=0, le=1000)
+    slippage_rate: float = Field(default=settings.BACKTEST_SLIPPAGE_RATE, ge=0, le=0.10)
 
 
 lab_service = LabService()
@@ -804,10 +822,25 @@ def ai_grid_review(params: AIGridReviewParams):
 
 @app.post('/api/ai/plan-review')
 def ai_plan_review(params: AIPlanReviewParams):
-    """网格计划体检：计划参数 + 压力测试结果。未配置key → 503，前端提示去配置。"""
+    """计划参数 + 压力测试 + 真实资金约束；缺数据时由 AI 服务拒绝研判。"""
     plan = grid_service.get_plan(params.plan_id)
     if not plan:
         raise HTTPException(404, '计划不存在')
+    ov = portfolio_service.overview()
+    position = next((p for p in ov['accounts']['grid']['positions']
+                     if p.get('plan_id') == params.plan_id), None)
+    remaining_need = sum(float(level.get('amount') or 0)
+                         for level, state in zip(plan.get('levels') or [],
+                                                 plan.get('level_states') or [])
+                         if state in ('wait', 'sold'))
+    plan = {
+        **plan,
+        'principal': float(ov['principal']),
+        'cash': float(ov['cash']),
+        'grid_full_capital': float(ov['grid_full_capital']),
+        'plan_invested': float(position['cost']) if position else 0.0,
+        'remaining_need': round(remaining_need, 2),
+    }
     try:
         return ai_service.plan_review(plan)
     except AINotConfigured as e:
@@ -824,17 +857,26 @@ def ai_exit_review(params: AIPlanReviewParams):
         raise HTTPException(404, '计划不存在')
 
     position, rounds, realized = {}, None, None
+    prices = {}
     try:
-        ov = portfolio_service.overview()
-        for p in ov['accounts']['grid']['positions']:
-            if p.get('plan_id') == params.plan_id and p['shares'] > 0:
-                position = {k: p.get(k) for k in
-                            ('shares', 'cost', 'market_value', 'unrealized_pnl')}
-                break
-    except Exception as e:  # noqa: BLE001 — 持仓缺失不阻塞研判
+        quotes = etf_service.quotes([plan['symbol']])
+        quote = quotes.get(plan['symbol']) or {}
+        if quote.get('close'):
+            prices[plan['symbol']] = float(quote['close'])
+    except Exception as e:  # noqa: BLE001 — 缺价时 AI 服务会返回数据不足
+        logger.warning('退出研判行情获取失败: %s', e)
+    try:
+        ov = portfolio_service.overview(prices)
+        position = next(({k: p.get(k) for k in
+                          ('shares', 'cost', 'market_value', 'unrealized_pnl')}
+                         for p in ov['accounts']['grid']['positions']
+                         if p.get('plan_id') == params.plan_id and p['shares'] > 0),
+                        {'shares': 0.0, 'cost': 0.0,
+                         'market_value': 0.0, 'unrealized_pnl': 0.0})
+    except Exception as e:  # noqa: BLE001
         logger.warning('退出研判持仓汇总失败: %s', e)
     try:
-        for rp in review_service.review()['plans']:
+        for rp in review_service.review(prices=prices)['plans']:
             if rp.get('plan_id') == params.plan_id:
                 rounds, realized = rp.get('rounds'), rp.get('realized_pnl')
                 break
@@ -853,7 +895,8 @@ def ai_exit_review(params: AIPlanReviewParams):
         logger.warning('退出研判估值数据获取失败: %s', e)
 
     ctx = {'plan': plan, 'position': position, 'rounds': rounds,
-           'realized_pnl': realized, 'index': idx_ctx}
+           'realized_pnl': realized, 'index': idx_ctx,
+           'current_price': prices.get(plan['symbol'])}
     try:
         return ai_service.exit_review(ctx)
     except AINotConfigured as e:
@@ -894,16 +937,22 @@ class AIOptimizeReviewParams(BaseModel):
     amount_per_grid: float = Field(default=10000, gt=0)
     step_increase: float = 0
     profit_retention: float = 0
+    fee_rate: float = Field(default=settings.BACKTEST_FEE_RATE, ge=0, le=0.10)
+    min_fee: float = Field(default=settings.BACKTEST_MIN_FEE, ge=0, le=1000)
+    slippage_rate: float = Field(default=settings.BACKTEST_SLIPPAGE_RATE, ge=0, le=0.10)
     lookback_days: int = Field(default=750, ge=20, le=1500)
 
 
 @app.post('/api/ai/optimize-review')
 def ai_optimize_review(p: AIOptimizeReviewParams):
     """AI 解读参数寻优：读 25 格矩阵给出带上下文的建议。未配置key → 503。"""
-    prices = etf_service.daily_closes(p.symbol, p.lookback_days)
-    if len(prices) < 20:
-        raise HTTPException(400, '历史数据不足 · 请确认标的代码正确且已配置数据源')
-    matrix = backtest_service.optimize(p.dict(), prices)
+    try:
+        prices = etf_service.daily_closes(p.symbol, p.lookback_days)
+        if len(prices) < 20:
+            raise ValueError('历史数据不足，至少需要 20 个有效交易日')
+        matrix = backtest_service.optimize(p.dict(), prices)
+    except ValueError as e:
+        raise HTTPException(400, f'寻优数据不可用：{e}')
 
     # 关联监控指数上下文（估值分位/结论/波动），关联不上则跳过
     idx_ctx = {}
@@ -926,6 +975,11 @@ def ai_optimize_review(p: AIOptimizeReviewParams):
         'symbol': p.symbol, 'symbol_name': p.symbol_name, 'n': matrix['n'],
         'amount': p.amount_per_grid, 'inc': p.step_increase, 'ret': p.profit_retention,
         'cells': matrix['cells'], 'best': matrix['best'],
+        'costs': matrix.get('costs') or {
+            'fee_rate': p.fee_rate, 'min_fee': p.min_fee,
+            'slippage_rate': p.slippage_rate,
+        },
+        'validation': matrix.get('validation'),
         'index': idx_ctx, 'safety_ratio': safety_ratio,
     }
     try:

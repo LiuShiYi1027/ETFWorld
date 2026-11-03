@@ -39,34 +39,65 @@ class TodayService:
     def today(self, near_pct: float = 2.0, prices: Optional[Dict[str, float]] = None) -> Dict:
         plans = [p for p in self.grid.list_plans() if p['status'] in ('active', 'paused', 'broken')]
         if prices is None:
-            prices = self._fetch_prices([p['symbol'] for p in plans])
+            quotes = self._fetch_quotes([p['symbol'] for p in plans])
+            prices = {s: q['close'] for s, q in quotes.items()
+                      if q and q.get('close') is not None}
+        else:
+            # 测试/调用方显式注入现价时视为可用；也允许直接注入完整 quote。
+            quotes = {s: (q if isinstance(q, dict) else {'close': q, 'stale': False})
+                      for s, q in prices.items()}
+            prices = {s: q.get('close') for s, q in quotes.items()
+                      if q and q.get('close') is not None}
 
         readiness = self._readiness_map()
         todos, health = [], []
-        alerts = {'broken': [], 'high': [], 'valuation': [], 'exit': []}
+        alerts = {'broken': [], 'high': [], 'valuation': [], 'exit': [],
+                  'corporate_action': []}
 
         for p in plans:
+            corporate = self._corporate_action_check(p)
+            if corporate and corporate.get('pause_required'):
+                was_active = p['status'] == 'active'
+                if was_active:
+                    self.grid.update_status(p['id'], 'paused')
+                    p['status'] = 'paused'
+                alerts['corporate_action'].append({
+                    'plan_id': p['id'], 'name': p['name'],
+                    'symbol': p['symbol'], 'symbol_name': p.get('symbol_name'),
+                    'needs_review': True, 'paused_from_active': was_active,
+                    **corporate,
+                })
+
             levels = p.get('levels') or []
             if not levels:
                 continue
+            quote = quotes.get(p['symbol']) or {}
+            stale = bool(quote.get('stale', False))
             cur = prices.get(p['symbol'])
             h = self._plan_health(p, levels, cur)
+            h.update({
+                'quote_date': quote.get('trade_date'),
+                'as_of_date': quote.get('as_of_date'),
+                'stale': stale, 'stale_reason': quote.get('stale_reason'),
+            })
+            if stale:
+                h['next_buy'] = None
+                h['next_sell'] = None
             health.append(h)
             if cur is None:
                 continue
 
-            # 待办：只对 active 计划生成（paused 是用户主动暂停；broken 装死持有
-            # 不再挂新单——两者保留在 health 与预警灯中，但不产生买卖待办）
-            if p['status'] == 'active':
+            # 陈旧行情只保留健康快照，不生成可执行待办或价格破位预警。
+            if p['status'] == 'active' and not stale:
                 for cand in (h['next_buy'], h['next_sell']):
                     if cand and cand['dist_pct'] <= near_pct:
                         todos.append(cand)
 
-            # 预警灯
-            if p['status'] == 'broken' or cur < h['low']:
-                alerts['broken'].append(self._alert_base(p, cur, h))
-            elif cur >= h['top']:
-                alerts['high'].append(self._alert_base(p, cur, h))
+            if not stale:
+                if p['status'] == 'broken' or cur < h['low']:
+                    alerts['broken'].append(self._alert_base(p, cur, h))
+                elif cur >= h['top']:
+                    alerts['high'].append(self._alert_base(p, cur, h))
             idx_name = match_index_name(p.get('symbol_name') or '', list(readiness.keys()))
             idx = readiness.get(idx_name) if idx_name else None
             if idx and idx.get('valuation_percentile') is not None \
@@ -102,7 +133,7 @@ class TodayService:
         rotation_todos = []
         if self.rotation is not None:
             try:
-                rotation_todos = self.rotation.due_todos(self.etf.daily_closes)
+                rotation_todos = self.rotation.due_todos(self.etf.daily_bars)
             except Exception as e:  # noqa: BLE001 — 轮动待办失败不阻塞主视图
                 logger.warning('轮动待办计算失败: %s', e)
         return {
@@ -111,6 +142,7 @@ class TodayService:
             'rotation_todos': rotation_todos,
             'alerts': alerts,
             'health': health,
+            'quotes': quotes,
             'portfolio': self._portfolio_brief(prices),
         }
 
@@ -135,7 +167,13 @@ class TodayService:
         sell_cands = [l for l, s in zip(levels, states) if s == 'hold']
         if sell_cands:
             l = min(sell_cands, key=lambda x: abs(cur - float(x['sell_price'])))
-            h['next_sell'] = self._todo(plan, l, 'sell', cur)
+            level_id = l['level']
+            remaining = sum(float(t['shares']) * (1 if t['direction'] == 'buy' else -1)
+                            for t in self.trade.list_trades(plan_id=plan['id'])
+                            if t.get('grid_level') == level_id)
+            # 部分卖出后仍持有：只能卖实际剩余份额，不能再次按计划卖出份额超卖。
+            l = {**l, 'sell_shares': min(int(l['sell_shares']), max(0, int(remaining)))}
+            h['next_sell'] = self._todo(plan, l, 'sell', cur) if l['sell_shares'] > 0 else None
         return h
 
     def grid_level_states(self, plan_id: int, levels: List[Dict]) -> List[str]:
@@ -168,13 +206,39 @@ class TodayService:
                 else round((cur / h['top'] - 1) * 100, 2)}
 
     # ---------- 依赖数据 ----------
-    def _fetch_prices(self, symbols: List[str]) -> Dict[str, float]:
+    def _fetch_quotes(self, symbols: List[str]) -> Dict[str, Dict]:
         try:
-            quotes = self.etf.quotes(sorted(set(symbols)))
-            return {s: q['close'] for s, q in quotes.items() if q and q.get('close')}
+            return self.etf.quotes(sorted(set(symbols)))
         except Exception as e:  # noqa: BLE001 — 行情失败降级为无价格
             logger.warning('今日视图行情获取失败: %s', e)
             return {}
+
+    def _corporate_action_check(self, plan: Dict) -> Optional[Dict]:
+        """适配 ETFService.corporate_action_check(symbol, since_date)。
+
+        因子缺失或检测异常均按 pause_required 处理；接口尚未注入时返回
+        None，不伪造“无公司行动”结论。
+        """
+        checker = getattr(self.etf, 'corporate_action_check', None)
+        if not callable(checker):
+            return None
+        since_date = (plan.get('created_at') or '')[:10]
+        if not since_date:
+            return {'status': 'unavailable', 'has_changed': None,
+                    'pause_required': True, 'changes': [],
+                    'message': '缺少计划创建日期，无法核对复权因子'}
+        try:
+            return checker(plan['symbol'], since_date)
+        except Exception as e:  # noqa: BLE001 — 检测不可用时不得继续执行旧网格
+            logger.warning('公司行动检测失败 %s: %s', plan['symbol'], e)
+            return {'status': 'unavailable', 'has_changed': None,
+                    'pause_required': True, 'changes': [],
+                    'message': f'公司行动检测不可用：{e}'}
+
+    def _fetch_prices(self, symbols: List[str]) -> Dict[str, float]:
+        quotes = self._fetch_quotes(symbols)
+        return {s: q['close'] for s, q in quotes.items()
+                if q and q.get('close') is not None}
 
     def _readiness_map(self) -> Dict[str, Dict]:
         try:
@@ -198,9 +262,11 @@ class TodayService:
 class _TradeRow:
     """把 trade dict 包装成 derive_level_states 需要的属性访问形态"""
 
-    __slots__ = ('direction', 'shares', 'grid_level')
+    __slots__ = ('direction', 'shares', 'grid_level', 'price', 'fee')
 
     def __init__(self, d: Dict):
         self.direction = d['direction']
         self.shares = d['shares']
         self.grid_level = d.get('grid_level')
+        self.price = d['price']
+        self.fee = d.get('fee', 0)

@@ -80,10 +80,16 @@ export const rotationActions = {
     return (store.todayData && store.todayData.rotation_todos) || [];
   },
   rotActionLabel(t) {
-    return { switch: '调仓', exit: '清仓', enter: '建仓' }[t.action] || t.action;
+    if (t.status === 'data_insufficient') return '数据不足';
+    if (t.status === 'awaiting_execution') return '等待执行日';
+    return { switch: '调仓', exit: '清仓', enter: '建仓' }[t.action] || '不可执行';
   },
   // 记卖出：预填当前持仓全卖；记买入：预填目标品种（份额按实际所得手填）
   async rotRecord(t, direction) {
+    if (t.status !== 'pending') {
+      toast(t.status === 'data_insufficient' ? '行情数据不足，本期禁止调仓' : '尚未到信号后的可执行交易日', 'warn');
+      return;
+    }
     const isSell = direction === 'sell';
     const leg = isSell ? t.holding : t.target;
     let price = '';

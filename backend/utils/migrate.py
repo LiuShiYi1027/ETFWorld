@@ -79,6 +79,11 @@ def _m005_app_meta(conn, dialect):
     _reconcile_columns(conn, dialect)
 
 
+def _m006_rotation_signals(conn, dialect):
+    """迁移 6：可审计、重启稳定的轮动周期信号表。"""
+    _reconcile_columns(conn, dialect)
+
+
 # (版本号, 迁移函数)；版本号严格递增，迁移函数签名 fn(conn, dialect)
 MIGRATIONS = [
     (1, _m001_reconcile),
@@ -86,6 +91,7 @@ MIGRATIONS = [
     (3, _m003_dca),
     (4, _m004_rotation),
     (5, _m005_app_meta),
+    (6, _m006_rotation_signals),
 ]
 
 SCHEMA_VERSION = MIGRATIONS[-1][0]

@@ -4,6 +4,8 @@ import pytest
 from backend.services.grid_service import generate_levels, pressure_test
 from backend.services.backtest_service import simulate_grid
 
+ZERO_COSTS = {'fee_rate': 0, 'min_fee': 0, 'slippage_rate': 0}
+
 # 先跌到第3格再涨回原点的震荡序列，重复3轮
 DOWN_UP = [1.0, 0.95, 0.9025, 0.95, 1.0] * 3
 
@@ -98,7 +100,7 @@ class TestSharesMode:
 
     def test_simulate_grid_shares_mode(self):
         """等份额回测：买卖按档位正常撮合"""
-        r = simulate_grid(DOWN_UP, 5, 3, 0, mode='shares', shares=10000)
+        r = simulate_grid(DOWN_UP, 5, 3, 0, mode='shares', shares=10000, **ZERO_COSTS)
         assert r['trades'] > 0
         assert r['grid_ret'] != 0
 
@@ -160,21 +162,39 @@ class TestPressureTest:
         assert pt['total_capital'] == sum(l['amount'] for l in levels)
         assert pt['total_shares'] == sum(l['shares'] for l in levels)
         assert pt['lowest_price'] == levels[-1]['buy_price']
-        assert pt['max_unrealized_loss'] < 0
+        assert pt['bottom_unrealized_loss'] < 0
+        assert pt['bottom_unrealized_loss'] == pt['max_unrealized_loss']  # 旧键兼容
         assert pt['avg_cost'] > pt['lowest_price']  # 满格成本高于最低价，必浮亏
+
+    def test_post_break_tail_losses_are_not_mislabeled_as_bottom_loss(self):
+        levels = generate_levels(base_price=1.0, grid_step=5, grid_count=3,
+                                 amount_per_grid=10000)
+        pt = pressure_test(levels, 1.0)
+        scenarios = pt['post_break_scenarios']
+        assert [s['decline_pct'] for s in scenarios] == [25, 50, 100]
+        assert [s['price'] for s in scenarios] == [
+            round(pt['lowest_price'] * factor, 4) for factor in (0.75, 0.5, 0.0)]
+        for scenario in scenarios:
+            assert scenario['market_value'] == round(pt['total_shares'] * scenario['price'], 2)
+            assert scenario['unrealized_loss'] == round(
+                scenario['market_value'] - pt['total_capital'], 2)
+        assert scenarios[-1]['market_value'] == 0.0
+        assert scenarios[-1]['unrealized_loss'] == -pt['total_capital']
+        assert scenarios[-1]['unrealized_loss_pct'] == -100.0
+        assert scenarios[-1]['unrealized_loss'] < pt['bottom_unrealized_loss']
 
 
 class TestSimulateGrid:
     def test_oscillation_makes_arbitrage(self):
         """震荡回到原点：持有零收益，网格应有套利收益"""
-        r = simulate_grid(DOWN_UP, step=5, count=3, amount=10000)
+        r = simulate_grid(DOWN_UP, step=5, count=3, amount=10000, **ZERO_COSTS)
         assert r['trades'] >= 2
         assert r['hold_ret'] == 0.0
         assert r['grid_ret'] > r['hold_ret']
 
     def test_events_track_buys_and_sells(self):
         """买卖点事件：卖出事件数=套利次数，买≥卖，事件含档位与价格"""
-        r = simulate_grid(DOWN_UP, step=5, count=3, amount=10000)
+        r = simulate_grid(DOWN_UP, step=5, count=3, amount=10000, **ZERO_COSTS)
         buys = [e for e in r['events'] if e['dir'] == 'buy']
         sells = [e for e in r['events'] if e['dir'] == 'sell']
         assert len(sells) == r['trades']
@@ -185,18 +205,19 @@ class TestSimulateGrid:
     def test_broken_grid_detected(self):
         """跌破最后一格买入价(0.9025) → broken_idx 记录首次跌破日"""
         prices = [1.0, 0.95, 0.9, 0.85, 0.8]
-        r = simulate_grid(prices, step=5, count=3, amount=10000)
+        r = simulate_grid(prices, step=5, count=3, amount=10000, **ZERO_COSTS)
         assert r['broken_idx'] == 2  # 第3日 0.9 < 0.9025
         assert r['grid_ret'] < 0  # 破网后满仓硬扛，必亏
 
     def test_no_broken_grid(self):
-        r = simulate_grid([1.0, 0.96, 0.98, 1.0], step=5, count=3, amount=10000)
+        r = simulate_grid([1.0, 0.96, 0.98, 1.0], step=5, count=3, amount=10000,
+                          **ZERO_COSTS)
         assert r['broken_idx'] is None
 
     def test_profit_retention_accumulates_free_shares(self):
         """网格2.0：每次卖出留存份额进入底仓，与1.0结果可区分"""
-        r1 = simulate_grid(DOWN_UP, step=5, count=3, amount=20000, ret=0)
-        r2 = simulate_grid(DOWN_UP, step=5, count=3, amount=20000, ret=30)
+        r1 = simulate_grid(DOWN_UP, step=5, count=3, amount=20000, ret=0, **ZERO_COSTS)
+        r2 = simulate_grid(DOWN_UP, step=5, count=3, amount=20000, ret=30, **ZERO_COSTS)
         assert r1['retained_shares'] == 0
         assert r2['retained_shares'] > 0
         assert r2['retained_shares'] % 100 == 0
@@ -205,12 +226,12 @@ class TestSimulateGrid:
     def test_retention_accounting_conserves_value(self):
         """底仓市值+已实现+未投入现金+持仓市值 = 账户总值（不自盈自亏）"""
         prices = DOWN_UP
-        r = simulate_grid(prices, step=5, count=3, amount=20000, ret=30)
+        r = simulate_grid(prices, step=5, count=3, amount=20000, ret=30, **ZERO_COSTS)
         # 终点价格回到基准：底仓与持仓均不浮亏，收益应全部来自已实现套利
         assert r['grid_ret'] > 0
 
     def test_empty_prices(self):
-        r = simulate_grid([], step=5, count=3, amount=10000)
+        r = simulate_grid([], step=5, count=3, amount=10000, **ZERO_COSTS)
         assert r['n'] == 0
         assert r['broken_idx'] is None
         assert r['retained_shares'] == 0
@@ -218,14 +239,45 @@ class TestSimulateGrid:
 
     def test_zero_lot_levels_do_not_trade(self):
         """每格金额不足一手时，档位不参与撮合，也不虚增套利次数"""
-        r = simulate_grid([1.0, 0.95, 1.0] * 3, step=5, count=2, amount=50)
+        r = simulate_grid([1.0, 0.95, 1.0] * 3, step=5, count=2, amount=50,
+                          **ZERO_COSTS)
         assert r['events'] == []
         assert r['trades'] == 0
         assert r['invested_pct'] == 0
 
     def test_retention_swallowing_all_sell_shares_counts_no_round(self):
         """留利润吃掉全部卖出份额：一股未卖，不计套利回合也不转留存"""
-        r = simulate_grid([5.0, 4.75, 5.3], step=5, count=1, amount=500, ret=30)
+        r = simulate_grid([5.0, 4.75, 5.3], step=5, count=1, amount=500, ret=30,
+                          **ZERO_COSTS)
         assert r['trades'] == 0
         assert r['retained_shares'] == 0
         assert [e['dir'] for e in r['events']] == ['buy']
+
+    def test_fee_and_slippage_reduce_actual_cash_account(self):
+        prices = [1.0, 1.1]
+        r = simulate_grid(prices, step=5, count=2, amount=10000,
+                          fee_rate=0.001, min_fee=0, slippage_rate=0.001)
+        zero = simulate_grid(prices, step=5, count=2, amount=10000, **ZERO_COSTS)
+        buy, sell = r['events']
+        expected = r['budget'] - 10000 * buy['execution_price'] * 1.001 \
+            + 10000 * sell['execution_price'] * 0.999
+        assert r['final_value'] == pytest.approx(expected, abs=0.01)
+        assert r['costs']['fees'] == pytest.approx(20.53, abs=0.01)
+        assert r['costs']['slippage'] > 0
+        assert r['final_value'] < zero['final_value']
+        assert r['max_dd'] > 0  # 首日费用也从期初 NAV=1 计入回撤
+
+    def test_max_drawdown_uses_unrounded_nav_relative_to_peak(self):
+        # 20501 → 18976 的标准 NAV 回撤为 7.44%，不是收益率点位差 7.63%。
+        r = simulate_grid([1.0, 1.1, 0.95, 0.90], step=5, count=2,
+                          amount=10000, **ZERO_COSTS)
+        assert r['account'] == [19975, 20501, 20001, 18976]
+        assert r['max_dd'] == 7.44
+
+    def test_hold_benchmark_uses_same_budget_lot_and_costs(self):
+        r = simulate_grid([1.0, 1.0], step=5, count=2, amount=10000,
+                          fee_rate=0.001, min_fee=0, slippage_rate=0.001)
+        assert r['hold_costs']['fees'] > 0
+        assert r['hold_costs']['slippage'] > 0
+        assert r['hold_ret'] < 0  # 价格不变，建仓费用与滑点仍真实损失
+        assert r['hold_account'][0] < r['budget']

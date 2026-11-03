@@ -168,13 +168,14 @@ export const PlansView = {
           <template v-if="dcaBt && dcaBt.n">
             <div id="dca-bt" style="height:230px;"></div>
             <table style="margin-top:8px;">
-              <thead><tr><th class="l">口径</th><th>累计投入</th><th>期末市值</th><th>收益率</th><th>已投/总期数</th></tr></thead>
+              <thead><tr><th class="l">口径</th><th>累计投入</th><th>期末市值</th><th>投入收益率</th><th>XIRR</th><th>已投/总期数</th></tr></thead>
               <tbody>
                 <tr>
                   <td class="l">普通定投</td>
                   <td>{{ fmt(dcaBt.plain.total_invested,0) }}</td>
                   <td>{{ fmt(dcaBt.plain.final_value,0) }}</td>
                   <td :style="{color:dcaBt.plain.return_pct>=0?'var(--accent)':'var(--red-ink)',fontWeight:600}">{{ dcaBt.plain.return_pct>=0?'+':'' }}{{ dcaBt.plain.return_pct }}%</td>
+                  <td>{{ dcaBt.plain.xirr == null ? '—' : dcaBt.plain.xirr.toFixed(2) + '%' }}</td>
                   <td>{{ dcaBt.plain.periods_invested }}/{{ dcaBt.plain.periods }}</td>
                 </tr>
                 <tr>
@@ -182,12 +183,12 @@ export const PlansView = {
                   <td>{{ fmt(dcaBt.enhanced.total_invested,0) }}</td>
                   <td>{{ fmt(dcaBt.enhanced.final_value,0) }}</td>
                   <td :style="{color:dcaBt.enhanced.return_pct>=0?'var(--accent)':'var(--red-ink)',fontWeight:700}">{{ dcaBt.enhanced.return_pct>=0?'+':'' }}{{ dcaBt.enhanced.return_pct }}%</td>
+                  <td>{{ dcaBt.enhanced.xirr == null ? '—' : dcaBt.enhanced.xirr.toFixed(2) + '%' }}</td>
                   <td>{{ dcaBt.enhanced.periods_invested }}/{{ dcaBt.enhanced.periods }}（停投 {{ dcaBt.enhanced.paused_periods }} 期）</td>
                 </tr>
               </tbody>
             </table>
-            <div class="note" style="padding:8px 0 0;">每期首个交易日按收盘价买入，份额整手取整；增强口径按当日往前 5 年的 PE/PB 时点分位调整金额。未计手续费，历史不代表未来。</div>
-          </template>
+            <div class="note" style="padding:8px 0 0;">普通定投在周期首日执行；增强定投使用信号日前估值，并在信号后的下一交易日执行。投入收益率为期末市值/累计实际投入−1，XIRR 按真实现金流日期年化。已计佣金与滑点，历史不代表未来。</div>
         </div>
       </div>
       <div class="card-h" style="border-top:1px solid var(--line);padding-top:14px;"><div class="t">成交记录</div><div class="d">{{ dcaDetailTrades.length }} 笔</div></div>

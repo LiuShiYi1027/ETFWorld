@@ -18,8 +18,11 @@ def _clean_db():
 
 
 class _FakeEtf:
+    def daily_raw_bars(self, symbol, days=250):
+        raise AssertionError('测试应通过 bars_map 注入原始日线')
+
     def daily_bars(self, symbol, days=250):
-        raise AssertionError('测试应通过 bars_map 注入日线')
+        raise AssertionError('执行复盘不得读取前复权日线')
 
 
 def _services():
@@ -68,33 +71,29 @@ class TestPlanStats:
 
 class TestDiscipline:
     def test_missed_buy_counted(self):
-        """价格穿越买价且窗口内无买入 → 该买没买；下行途中 G1、G2 各触发一波"""
+        """原始价触及买价且七个交易日内无买入 → 该买没买"""
         grid, _, svc = _services()
         _plan(grid)
-        # G1 买价 1.0：第 1 日 1.0 ≤ 1.01 触发；G2 买价 0.95：第 3 日 0.949 ≤ 0.9595 触发
         bars = _bars([1.0, 0.97, 0.949, 0.96, 0.97, 0.98, 0.99, 1.0, 1.01, 1.02])
         r = svc.review(bars_map={'510300': bars})
-        assert r['plans'][0]['missed_buy'] == 2  # G1、G2 各一波
+        assert r['plans'][0]['missed_buy'] == 2
 
     def test_buy_in_window_is_compliant(self):
-        """触发后窗口内有对应买入 → 不违约"""
         grid, trade, svc = _services()
         p = _plan(grid)
         trade.add_trade({'plan_id': p['id'], 'symbol': '510300',
                          'trade_date': '2026-01-02', 'direction': 'buy',
-                         'price': 1.0, 'shares': 100, 'grid_level': 1})   # G1 窗口内合规
+                         'price': 1.0, 'shares': 100, 'grid_level': 1})
         trade.add_trade({'plan_id': p['id'], 'symbol': '510300',
                          'trade_date': '2026-01-05', 'direction': 'buy',
-                         'price': 0.95, 'shares': 100, 'grid_level': 2})  # G2 窗口内合规
+                         'price': 0.95, 'shares': 100, 'grid_level': 2})
         bars = _bars([1.0, 0.97, 0.949, 0.96, 0.97, 0.98, 0.99, 1.0, 1.01, 1.02])
         r = svc.review(bars_map={'510300': bars})
         assert r['plans'][0]['missed_buy'] == 0
 
     def test_missed_sell_requires_holding(self):
-        """卖出纪律只评估买入过的档位：未持有的档穿越卖价不记违约"""
         grid, trade, svc = _services()
         p = _plan(grid)
-        # G3 买入 → 卖价 0.95：第 3 日 0.9505 触发且无卖出 → 违约 1 次
         trade.add_trade({'plan_id': p['id'], 'symbol': '510300',
                          'trade_date': '2026-01-01', 'direction': 'buy',
                          'price': 0.9025, 'shares': 100, 'grid_level': 3})
@@ -102,14 +101,15 @@ class TestDiscipline:
         r = svc.review(bars_map={'510300': bars})
         row = r['plans'][0]
         assert row['missed_sell'] == 1
-        assert row['missed_buy'] == 2  # G1/G2 从未买入：下行穿越各自记一波（语义正确）
+        # G1 一段；G2 在第1日、第4日各起一段独立波次，均满七日未买。
+        assert row['missed_buy'] == 3
 
     def test_unheld_level_sell_cross_ignored(self):
         grid, _, svc = _services()
         _plan(grid)
         bars = _bars([0.90, 0.92, 0.9505, 0.94, 0.93, 0.92, 0.91, 0.90, 0.90, 0.90])
         r = svc.review(bars_map={'510300': bars})
-        assert r['plans'][0]['missed_sell'] == 0  # 从未买入 → 不评估卖出纪律
+        assert r['plans'][0]['missed_sell'] == 0
 
     def test_no_cross_no_miss(self):
         grid, _, svc = _services()
@@ -122,5 +122,71 @@ class TestDiscipline:
     def test_no_bars_graceful(self):
         grid, _, svc = _services()
         _plan(grid)
-        r = svc.review(bars_map={})  # 取不到日线 → 不崩溃、不违约
+        r = svc.review(bars_map={})
         assert r['plans'][0]['missed_buy'] == 0
+
+    def test_recent_trigger_is_pending_not_missed(self):
+        grid, _, svc = _services()
+        _plan(grid)
+        r = svc.review(bars_map={'510300': _bars([1.0, 0.99, 0.98])})
+        row = r['plans'][0]
+        assert row['missed_buy'] == 0
+        assert row['pending_buy'] == 1
+        assert r['totals']['pending_buy'] == 1
+
+    def test_trigger_day_counts_as_window_day_one(self):
+        grid, trade, svc = _services()
+        p = _plan(grid)
+        trade.add_trade({'plan_id': p['id'], 'symbol': '510300',
+                         'trade_date': '2026-01-01', 'direction': 'buy',
+                         'price': 1.0, 'shares': 100, 'grid_level': 1})
+        r = svc.review(bars_map={'510300': _bars([1.0])})
+        row = r['plans'][0]
+        assert row['missed_buy'] == 0 and row['pending_buy'] == 0
+
+    def test_seventh_day_execution_is_compliant(self):
+        grid, trade, svc = _services()
+        p = _plan(grid)
+        trade.add_trade({'plan_id': p['id'], 'symbol': '510300',
+                         'trade_date': '2026-01-07', 'direction': 'buy',
+                         'price': 1.0, 'shares': 100, 'grid_level': 1})
+        r = svc.review(bars_map={'510300': _bars([1.0] * 7)})
+        row = r['plans'][0]
+        assert row['missed_buy'] == 0 and row['pending_buy'] == 0
+
+    def test_completed_seventh_day_without_execution_is_missed(self):
+        grid, trade, svc = _services()
+        p = _plan(grid)
+        trade.add_trade({'plan_id': p['id'], 'symbol': '510300',
+                         'trade_date': '2026-01-08', 'direction': 'buy',
+                         'price': 1.0, 'shares': 100, 'grid_level': 1})
+        r = svc.review(bars_map={'510300': _bars([1.0] * 8)})
+        assert r['plans'][0]['missed_buy'] == 1  # 第 8 日成交不能补救已结束窗口
+
+    def test_one_percent_tolerance_does_not_trigger_early(self):
+        grid, _, svc = _services()
+        _plan(grid)
+        r = svc.review(bars_map={'510300': _bars([1.009] * 7)})
+        row = r['plans'][0]
+        assert row['missed_buy'] == 0 and row['pending_buy'] == 0
+
+    def test_review_uses_raw_prices_not_latest_adjusted_history(self):
+        class RawOnlyEtf:
+            def __init__(self):
+                self.raw_calls = 0
+
+            def daily_raw_bars(self, symbol, days=250):
+                self.raw_calls += 1
+                return _bars([1.0] * 7)
+
+            def daily_bars(self, symbol, days=250):
+                raise AssertionError('最新复权因子不得改写历史执行纪律')
+
+        grid, _, svc = _services()
+        _plan(grid)
+        raw = RawOnlyEtf()
+        svc.etf = raw
+        r = svc.review()
+        assert raw.raw_calls == 1
+        assert r['plans'][0]['missed_buy'] == 1
+        assert r['plans'][0]['price_basis'] == 'raw'

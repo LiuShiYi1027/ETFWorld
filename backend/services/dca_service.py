@@ -175,12 +175,14 @@ class DcaService:
         idx_name, hist = self.valuation_history(params.get('symbol_name'))
         base = float(params['base_amount'])
         freq = params.get('frequency') or 'weekly'
+        cost_kwargs = {key: params[key] for key in
+                       ('fee_rate', 'min_fee', 'slippage_rate') if key in params}
         return {
             'index_name': idx_name,
             'has_valuation': bool(hist),
             'n': len(bars),
-            'plain': simulate_dca(bars, [], base, freq, enhanced=False),
-            'enhanced': simulate_dca(bars, hist, base, freq, enhanced=True),
+            'plain': simulate_dca(bars, [], base, freq, enhanced=False, **cost_kwargs),
+            'enhanced': simulate_dca(bars, hist, base, freq, enhanced=True, **cost_kwargs),
         }
 
     # ---------- 纪律统计 ----------

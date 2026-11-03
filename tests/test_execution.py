@@ -41,17 +41,18 @@ class TestMatchGridLevel:
 
 
 class _T:  # 模拟 TradeTable 行
-    def __init__(self, direction, shares, grid_level):
+    def __init__(self, direction, shares, grid_level, price=1.0, fee=0.0):
         self.direction, self.shares, self.grid_level = direction, shares, grid_level
+        self.price, self.fee = price, fee
 
 
 class TestDeriveLevelStates:
     def test_four_states(self):
         trades = [
-            _T('buy', 100, 1),                     # G1 已卖
+            _T('buy', 100, 1),                         # G1 已卖
             _T('sell', 100, 1),
-            _T('buy', 200, 2), _T('sell', 100, 2),  # G2 留存（净剩 100）
-            _T('buy', 300, 3),                      # G3 持有
+            _T('buy', 200, 2), _T('sell', 100, 2, 2.1),  # G2 已回本，净剩 100
+            _T('buy', 300, 3),                          # G3 持有
         ]
         assert derive_level_states(_LEVELS, trades) == ['sold', 'keep', 'hold']
 
@@ -61,6 +62,19 @@ class TestDeriveLevelStates:
     def test_trades_without_level_ignored(self):
         trades = [_T('buy', 100, None)]
         assert derive_level_states(_LEVELS, trades) == ['wait', 'wait', 'wait']
+
+
+    def test_loss_residual_is_hold_not_keep(self):
+        trades = [_T('buy', 200, 1, 1.0), _T('sell', 100, 1, 1.0)]
+        assert derive_level_states(_LEVELS, trades) == ['hold', 'wait', 'wait']
+
+    @pytest.mark.parametrize('sell_fee, expected', [(7.0, 'keep'), (7.01, 'hold')])
+    def test_keep_requires_net_proceeds_to_cover_all_fees(self, sell_fee, expected):
+        trades = [
+            _T('buy', 1000, 1, 1.0, fee=10.0),
+            _T('sell', 900, 1, 1.13, fee=sell_fee),
+        ]
+        assert derive_level_states(_LEVELS, trades) == [expected, 'wait', 'wait']
 
 
 class TestAddTradeAutoMatch:
@@ -81,6 +95,24 @@ class TestAddTradeAutoMatch:
                              'trade_date': '2026-07-01', 'direction': 'buy',
                              'price': 0.951, 'shares': 100, 'grid_level': 3})
         assert t['grid_level'] == 3
+
+    def test_grid_buy_requires_matching_symbol_and_valid_level(self, services):
+        grid, trade = services
+        plan = grid.create_plan({'name': '测试', 'symbol': '510300', 'base_price': 1.0,
+                                 'grid_step': 5, 'grid_count': 3, 'amount_per_grid': 10000})
+        with pytest.raises(ValueError, match='标的与计划标的不一致'):
+            trade.add_trade({'plan_id': plan['id'], 'symbol': '512880',
+                             'trade_date': '2026-07-01', 'direction': 'buy',
+                             'price': 1.0, 'shares': 100, 'grid_level': 1})
+        with pytest.raises(ValueError, match='有效档位'):
+            trade.add_trade({'plan_id': plan['id'], 'symbol': '510300',
+                             'trade_date': '2026-07-01', 'direction': 'buy',
+                             'price': 1.0, 'shares': 100, 'grid_level': 99})
+        with pytest.raises(ValueError, match='计划不存在'):
+            trade.add_trade({'plan_id': 999, 'symbol': '510300',
+                             'trade_date': '2026-07-01', 'direction': 'buy',
+                             'price': 1.0, 'shares': 100, 'grid_level': 1})
+        assert trade.list_trades(plan_id=plan['id']) == []
 
     def test_planless_trade_stays_levelless(self, services):
         _, trade = services
@@ -211,3 +243,61 @@ class TestSellValidationByAccount:
         with pytest.raises(ValueError, match='持仓为负'):
             trade.delete_trade(b['id'])
         assert len(trade.list_trades(symbol='510300')) == 2  # 两笔都还在
+
+
+    def test_backdated_sell_before_buy_rejected_even_if_final_balance_positive(self, services):
+        """补录必须回放历史：最终不透支，也不能掩盖成交当日裸卖空"""
+        _, trade = services
+        trade.add_trade({'symbol': '510300', 'trade_date': '2026-07-02',
+                         'direction': 'buy', 'price': 1.0, 'shares': 1000})
+        with pytest.raises(ValueError, match='历史可用份额'):
+            trade.add_trade({'symbol': '510300', 'trade_date': '2026-07-01',
+                             'direction': 'sell', 'price': 1.1, 'shares': 1000})
+        assert len(trade.list_trades(symbol='510300')) == 1
+
+    def test_grid_sell_cannot_oversell_level_using_other_level_shares(self, services):
+        grid, trade = services
+        plan = grid.create_plan({'name': '测试', 'symbol': '510300', 'base_price': 1.0,
+                                 'grid_step': 5, 'grid_count': 3, 'amount_per_grid': 10000})
+        for level, shares in ((1, 100), (2, 1000)):
+            trade.add_trade({'plan_id': plan['id'], 'symbol': '510300',
+                             'trade_date': '2026-07-01', 'direction': 'buy',
+                             'price': 1.0, 'shares': shares, 'grid_level': level})
+        with pytest.raises(ValueError, match='该网格档位持仓'):
+            trade.add_trade({'plan_id': plan['id'], 'symbol': '510300',
+                             'trade_date': '2026-07-02', 'direction': 'sell',
+                             'price': 1.05, 'shares': 200, 'grid_level': 1})
+        assert len(trade.list_trades(plan_id=plan['id'])) == 2
+
+    def test_grid_sell_requires_matching_symbol_and_valid_level(self, services):
+        grid, trade = services
+        plan = grid.create_plan({'name': '测试', 'symbol': '510300', 'base_price': 1.0,
+                                 'grid_step': 5, 'grid_count': 3, 'amount_per_grid': 10000})
+        trade.add_trade({'plan_id': plan['id'], 'symbol': '510300',
+                         'trade_date': '2026-07-01', 'direction': 'buy',
+                         'price': 1.0, 'shares': 1000, 'grid_level': 1})
+        with pytest.raises(ValueError, match='标的与计划标的不一致'):
+            trade.add_trade({'plan_id': plan['id'], 'symbol': '512880',
+                             'trade_date': '2026-07-02', 'direction': 'sell',
+                             'price': 1.05, 'shares': 100, 'grid_level': 1})
+        with pytest.raises(ValueError, match='有效档位'):
+            trade.add_trade({'plan_id': plan['id'], 'symbol': '510300',
+                             'trade_date': '2026-07-02', 'direction': 'sell',
+                             'price': 1.05, 'shares': 100, 'grid_level': 99})
+
+    def test_delete_grid_buy_cannot_hide_level_negative_with_other_level(self, services):
+        grid, trade = services
+        plan = grid.create_plan({'name': '测试', 'symbol': '510300', 'base_price': 1.0,
+                                 'grid_step': 5, 'grid_count': 3, 'amount_per_grid': 10000})
+        first = trade.add_trade({'plan_id': plan['id'], 'symbol': '510300',
+                                 'trade_date': '2026-07-01', 'direction': 'buy',
+                                 'price': 1.0, 'shares': 100, 'grid_level': 1})
+        trade.add_trade({'plan_id': plan['id'], 'symbol': '510300',
+                         'trade_date': '2026-07-01', 'direction': 'buy',
+                         'price': 0.95, 'shares': 1000, 'grid_level': 2})
+        trade.add_trade({'plan_id': plan['id'], 'symbol': '510300',
+                         'trade_date': '2026-07-02', 'direction': 'sell',
+                         'price': 1.05, 'shares': 100, 'grid_level': 1})
+        with pytest.raises(ValueError, match='网格档位持仓为负'):
+            trade.delete_trade(first['id'])
+        assert len(trade.list_trades(plan_id=plan['id'])) == 3

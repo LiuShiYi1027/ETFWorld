@@ -17,6 +17,7 @@ AI 研判服务（任意兼容 OpenAI Chat Completions 协议的模型服务）
 """
 import json
 import logging
+import math
 from typing import Dict, List, Optional
 
 import requests
@@ -92,6 +93,30 @@ def _build_prompt(ctx: Dict) -> str:
     return "".join(parts)
 
 
+def _finite_number(value) -> Optional[float]:
+    """把有效有限数值与缺失/非法值区分开；资金为 0 仍是已知数据。"""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+_AFFORDABILITY_FIELDS = (
+    ('principal', '组合本金'),
+    ('cash', '可用现金'),
+    ('grid_full_capital', '全部网格剩余满格资金需求'),
+    ('plan_invested', '当前计划已投入资金'),
+    ('remaining_need', '当前计划剩余资金需求'),
+)
+
+
+def _missing_affordability_fields(plan: Dict) -> List[str]:
+    """资金承受力判断所需上下文；0 是有效值，None/空字符串才是缺失。"""
+    return [label for key, label in _AFFORDABILITY_FIELDS
+            if _finite_number(plan.get(key)) is None]
+
+
 def _build_plan_prompt(plan: Dict) -> str:
     """计划体检 prompt：具体参数 + 压力测试，找出计划最脆弱的地方"""
     pt = plan.get('pressure_test') or {}
@@ -114,12 +139,29 @@ def _build_plan_prompt(plan: Dict) -> str:
             f"压力测试：满格共需资金 {pt.get('total_capital')} 元，"
             f"最深一格跌至 {pt.get('lowest_price')}（距基准 {pt.get('max_fall_pct')}%），"
             f"满格浮亏 {pt.get('max_unrealized_loss_pct')}%。")
+    missing_capital = _missing_affordability_fields(plan)
+    if missing_capital:
+        parts.append(
+            f"资金上下文不完整，缺少：{'、'.join(missing_capital)}。"
+            "禁止判断资金承受力：不得判断现金是否足够、能否扛到满格、是否无偿付风险，"
+            "也不得据此宣称计划稳健可执行或不可行；只能分析其他已有数据，并明确说明资金结论为数据不足。")
+    else:
+        parts.append(
+            f"资金上下文：组合本金 {plan['principal']} 元，可用现金 {plan['cash']} 元，"
+            f"全部网格剩余满格资金需求 {plan['grid_full_capital']} 元，"
+            f"当前计划已投入 {plan['plan_invested']} 元，剩余需求 {plan['remaining_need']} 元。"
+            "只有核对以上五项数据后才允许判断资金承受力，且须同时考虑其他网格的资金占用。")
     if plan.get('note'):
         parts.append(f"用户备注：{plan['note']}。")
-    parts.append("请体检这份计划：最脆弱的地方是什么？资金能否扛到满格？"
+    affordability_question = ("资金能否扛到满格？" if not missing_capital
+                              else "除资金承受力外，还有哪些可由现有数据确认的短板？")
+    verdict_guide = ("verdict 含义：适合=计划稳健可执行，谨慎=有明显短板需调整，"
+                     "不适合=有完整数据证明计划不可行。" if not missing_capital else
+                     "verdict 含义：谨慎=存在短板或关键数据不足，不适合=有完整数据证明计划不可行；"
+                     "资金数据不全时不得以适合表示计划稳健可执行，也不得判断资金不可行。")
+    parts.append(f"请体检这份计划：最脆弱的地方是什么？{affordability_question}"
                  "参数与「低估买入、波动套利、不死标的」的网格理念匹配吗？"
-                 "verdict 含义：适合=计划稳健可执行，谨慎=有明显短板需调整，不适合=计划不可行。"
-                 "只做研究解读，不给出买卖指令或收益承诺。")
+                 f"{verdict_guide}只做研究解读，不给出买卖指令或收益承诺。")
     parts.append(_SCHEMA_HINT)
     return "".join(parts)
 
@@ -189,10 +231,37 @@ def _build_optimize_prompt(ctx: Dict) -> str:
     parts.append('；'.join(rows) + '。')
     best = ctx.get('best') or {}
     if best:
-        parts.append(f"按 score=收益−0.45×回撤 的最高分组合是 {best.get('step')}%×{best.get('count')}。")
+        parts.append(f"按验证集 score=收益−0.45×回撤 的最高分组合是 "
+                     f"{best.get('step')}%×{best.get('count')}。")
+    costs = ctx.get('costs') if isinstance(ctx.get('costs'), dict) else {}
+    validation = ctx.get('validation') if isinstance(ctx.get('validation'), dict) else {}
+    if costs:
+        parts.append(f"回测成本假设（JSON）：{json.dumps(costs, ensure_ascii=False, sort_keys=True)}。"
+                     "矩阵收益须按该口径理解为费后结果。")
+    else:
+        parts.append("未提供 costs 成本假设，无法确认矩阵是费后结果。")
+    if validation:
+        parts.append(f"时序样本外验证（JSON）：{json.dumps(validation, ensure_ascii=False, sort_keys=True)}。"
+                     "矩阵 ret/dd/trades/score 为验证集结果，train_* 为训练集结果。")
+    else:
+        parts.append("未提供 validation 时序样本外验证，矩阵不能视为已完成样本外验证。")
+    costs_complete = all(_finite_number(costs.get(key)) is not None
+                         for key in ('fee_rate', 'min_fee', 'slippage_rate'))
+    train_n = _finite_number(validation.get('train_n'))
+    validation_n = _finite_number(validation.get('validation_n'))
+    validation_complete = (validation.get('method') == 'chronological_holdout'
+                           and train_n is not None and train_n > 0
+                           and validation_n is not None and validation_n > 0)
+    verification_status = ("本次已提供费后成本口径与时序样本外验证，可结合两者讨论稳健性，"
+                           "仍不得承诺未来有效。" if costs_complete and validation_complete else
+                           "本次缺少完整费后成本口径或时序样本外验证，无法确认稳健，不得宣称稳健。")
     parts.append("请在这些组合里选一个「网格真实性」最好的：既看风险调整得分，"
                  "也看套利次数与资金利用率——成交过少（低活性）的组合更像低频抄底而非网格；"
                  "同时结合估值分位（高位易破网宜保守、低位可适度深格）与组合安全线给出建议。"
+                 "必须依据费后结果和样本外验证评价参数，比较训练集与验证集是否明显衰减。"
+                 f"{verification_status}"
+                 "缺少任一验证信息时，必须明确写出无法确认稳健，"
+                 "不得宣称稳健、可靠或未来有效，也不得把样本内费前最优外推为未来表现。"
                  "只做研究解读，不给出买卖指令或收益承诺。")
     parts.append(_OPTIMIZE_SCHEMA_HINT)
     return "".join(parts)
@@ -227,12 +296,61 @@ def _build_discovery_prompt(ctx: Dict) -> str:
 
 _EXIT_SCHEMA_HINT = (
     '只返回严格JSON，无其它文字：'
-    '{"verdict":"建议收网或准备退出或继续运行",'
+    '{"verdict":"建议收网或准备退出或继续运行或数据不足",'
     '"oneLine":"一句话结论40字内",'
     '"detail":"深入解读2-3段，每段2-3句：结合估值分位与计划状态具体分析，忌空话套话",'
     '"reasons":["依据1","依据2","依据3"],'
     '"actions":["建议动作1","建议动作2","建议动作3"]}'
 )
+
+
+def _exit_current_price(ctx: Dict) -> Optional[float]:
+    """优先使用明确现价；持仓市值/份额可验证地推导现价时也接受。"""
+    pos = ctx.get('position') if isinstance(ctx.get('position'), dict) else {}
+    for container in (ctx, pos):
+        price = _finite_number(container.get('current_price'))
+        if price is not None and price > 0:
+            return price
+    shares = _finite_number(pos.get('shares'))
+    market_value = _finite_number(pos.get('market_value'))
+    if shares is not None and shares > 0 and market_value is not None:
+        price = market_value / shares
+        if price > 0:
+            return price
+    return None
+
+
+def _exit_data_gaps(ctx: Dict) -> List[str]:
+    """退出行动所需的最低数据集；任何关键项缺失都不得生成行动建议。"""
+    gaps = []
+    pos = ctx.get('position') if isinstance(ctx.get('position'), dict) else {}
+    shares = _finite_number(pos.get('shares'))
+    if shares is None or shares < 0:
+        gaps.append('持仓份额')
+    elif shares > 0:
+        for key, label in (('cost', '持仓成本'), ('market_value', '持仓市值'),
+                           ('unrealized_pnl', '持仓浮盈')):
+            if _finite_number(pos.get(key)) is None:
+                gaps.append(label)
+    if _exit_current_price(ctx) is None:
+        gaps.append('ETF 现价')
+    idx = ctx.get('index') if isinstance(ctx.get('index'), dict) else {}
+    valuation = _finite_number(idx.get('valuation_percentile'))
+    if valuation is None or not 0 <= valuation <= 100:
+        gaps.append('估值综合分位')
+    return gaps
+
+
+def _exit_data_insufficient(gaps: List[str]) -> Dict:
+    missing = '、'.join(gaps) if gaps else '关键数据'
+    return {
+        'verdict': '数据不足',
+        'oneLine': '关键数据不足，无法研判退出',
+        'detail': f'缺少或无法验证：{missing}。当前不判断收网、准备退出或继续运行，也不生成行动建议。',
+        'reasons': [f'缺少或无法验证：{missing}'],
+        'actions': [],
+        'source': 'ai',
+    }
 
 
 def _build_exit_prompt(ctx: Dict) -> str:
@@ -246,13 +364,18 @@ def _build_exit_prompt(ctx: Dict) -> str:
     else:
         parts.append(f"参数：基准价 {plan.get('base_price')}，格距 {plan.get('grid_step')}%，"
                      f"共 {plan.get('grid_count')} 格，每格 {plan.get('amount_per_grid')} 元。")
-    pos = ctx.get('position') or {}
-    if pos.get('shares'):
+    pos = ctx.get('position') if isinstance(ctx.get('position'), dict) else {}
+    shares = _finite_number(pos.get('shares'))
+    if shares is None:
+        parts.append("持仓数据缺失，不能按无持仓处理。")
+    elif shares > 0:
         mv = pos.get('market_value')
         parts.append(f"当前持仓 {pos['shares']} 份，成本 {pos.get('cost')} 元"
                      + (f"，市值 {mv} 元，浮盈 {pos.get('unrealized_pnl')} 元。" if mv is not None else "。"))
     else:
         parts.append("当前该计划已无持仓。")
+    price = _exit_current_price(ctx)
+    parts.append(f"ETF 现价 {price:.4f}。" if price is not None else "ETF 现价缺失。")
     if ctx.get('rounds') is not None:
         parts.append(f"历史套利 {ctx['rounds']} 回合，已实现收益 {ctx.get('realized_pnl')} 元。")
     idx = ctx.get('index') or {}
@@ -263,11 +386,14 @@ def _build_exit_prompt(ctx: Dict) -> str:
         if idx.get('dist_52w_high') is not None:
             parts.append(f"距近一年高点 {idx['dist_52w_high']:+.1f}%，"
                          f"年化波动 {idx.get('volatility')}%。")
+    else:
+        parts.append("估值综合分位缺失。")
     parts.append("网格策略的生命周期是「低估开网 → 震荡套利 → 高估收网」。"
-                 "请判断这份计划现在处于哪个阶段：是否应该停止买入、逐步卖出剩余持仓、关闭计划收网？"
-                 "如果建议收网，给出具体的收尾节奏（如先停买单、逢反弹分批卖出、保留利润仓等）。"
+                 "只有持仓、ETF 现价与估值综合分位完整有效时，才可判断停止买入、逐步卖出或关闭计划；"
+                 "任一关键数据缺失时必须返回 verdict=数据不足、actions=[]，不得给任何行动建议。"
+                 "数据完整时，如果建议收网，给出具体的收尾节奏（如先停买单、逢反弹分批卖出、保留利润仓等）。"
                  "verdict 含义：建议收网=高估明确应立即收尾；准备退出=进入偏高区只卖不买、制定退出计划；"
-                 "继续运行=估值仍可接受。只做研究解读，不给出收益承诺。")
+                 "继续运行=估值仍可接受；数据不足=无法研判且无行动建议。只做研究解读，不给出收益承诺。")
     parts.append(_EXIT_SCHEMA_HINT)
     return "".join(parts)
 
@@ -297,7 +423,8 @@ class AIService:
         """网格计划体检。plan 含 levels 与 pressure_test（GridService.get_plan）"""
         if not self.enabled:
             raise AINotConfigured("AI_API_KEY 未配置，请在设置页或 backend/.env 填入后重启")
-        key = ('plan', plan.get('id'), plan.get('created_at'))
+        capital_key = tuple(_finite_number(plan.get(key)) for key, _ in _AFFORDABILITY_FIELDS)
+        key = ('plan', plan.get('id'), plan.get('created_at'), capital_key)
         if key not in self._cache:
             self._remember(key, self._ask(_build_plan_prompt(plan)))
         return self._cache[key]
@@ -344,11 +471,23 @@ class AIService:
         return self._cache[key]
 
     def exit_review(self, ctx: Dict) -> Dict:
-        """退出研判：该不该收网、怎么收。按 (计划, 估值数据日期) 缓存"""
+        """退出研判：该不该收网、怎么收。按计划、持仓与行情状态缓存"""
         if not self.enabled:
             raise AINotConfigured("AI_API_KEY 未配置，请在设置页或 backend/.env 填入后重启")
-        key = ('exit', (ctx.get('plan') or {}).get('id'),
-               (ctx.get('index') or {}).get('trade_date'))
+        gaps = _exit_data_gaps(ctx)
+        if gaps:
+            return _exit_data_insufficient(gaps)
+        plan = ctx.get('plan') or {}
+        pos = ctx.get('position') or {}
+        idx = ctx.get('index') or {}
+        market_key = (
+            _exit_current_price(ctx), idx.get('trade_date'),
+            idx.get('valuation_percentile'), idx.get('dist_52w_high'), idx.get('volatility'),
+        )
+        position_key = tuple(pos.get(key) for key in
+                             ('shares', 'cost', 'market_value', 'unrealized_pnl'))
+        key = ('exit', plan.get('id'), plan.get('status'), position_key, market_key,
+               ctx.get('rounds'), ctx.get('realized_pnl'))
         if key not in self._cache:
             self._remember(key, self._normalize_exit(
                 self._parse(self._chat([
@@ -360,8 +499,10 @@ class AIService:
     @staticmethod
     def _normalize_exit(data: Dict) -> Dict:
         verdict = data.get("verdict")
+        if verdict == '数据不足':
+            return _exit_data_insufficient(['模型确认关键数据不足'])
         if verdict not in ("建议收网", "准备退出", "继续运行"):
-            verdict = "准备退出"
+            return _exit_data_insufficient(['AI 返回了无法识别的 verdict，无法形成有效研判'])
         return {
             "verdict": verdict,
             "oneLine": str(data.get("oneLine", ""))[:60],

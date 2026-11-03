@@ -68,19 +68,23 @@ export const TodayView = {
           <div class="sub">
             <template v-if="t.holding">现持 {{ t.holding.symbol_name }} {{ t.holding.shares.toLocaleString('zh-CN') }} 份 → </template>
             <template v-if="t.target">目标 <b>{{ t.target.symbol_name }}</b>（动量 {{ t.target.momentum }}%）</template>
+            <template v-else-if="t.status==='data_insufficient'">本期不生成调仓目标</template>
             <template v-else>池内动量全负，转为空仓</template>
           </div>
-          <div class="sub" v-if="t.missing_data && t.missing_data.length" style="color:#B45309;">
-            行情缺失：{{ t.missing_data.join('、') }} 未参与本期动量比较 · 本期信号已锁定
+          <div class="sub" v-if="t.signal_date" style="color:var(--faint);">
+            信号日 {{ t.signal_date }} · 最早执行 {{ t.earliest_trade_date || '待下一交易日' }}
+          </div>
+          <div class="sub" v-if="t.status==='data_insufficient'" style="color:#B45309;">
+            行情缺失：{{ (t.missing_data || []).join('、') }} · 不完整品种池不排名，本期禁止调仓
           </div>
         </div>
-        <div style="white-space:nowrap;">
+        <div style="white-space:nowrap;" v-if="t.status==='pending'">
           <button class="btn sm danger" v-if="t.holding && !t.sell_done" @click="rotRecord(t,'sell')">记卖出</button>
           <button class="btn sm" style="color:var(--accent);border-color:#86EFAC;" v-if="t.target && !t.buy_done" @click="rotRecord(t,'buy')">记买入</button>
         </div>
       </div>
     </div>
-    <div class="note">轮动不自动下单。调仓是双腿动作：先记卖出、再记买入，两腿都完成本期待办才消失。每个调仓周期的动量信号首次计算后锁定，周期内不随日内行情翻转。</div>
+    <div class="note">轮动不自动下单。信号在周期首个交易日收盘后生成并持久化，最早于下一交易日执行；数据不足或尚未到执行日时不能记账。</div>
   </div>
 
   <div class="alerts" v-if="alertList().length">

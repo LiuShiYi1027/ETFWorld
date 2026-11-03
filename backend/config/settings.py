@@ -165,3 +165,9 @@ DCA_MULTIPLIERS = [
 ]
 # 综合分位超过此值时，除停投外额外提示分批止盈（只提示，不代操作）
 DCA_PROFIT_TAKE_PCT = 90.0
+
+# 回测交易成本：ETF 无印花税，按双边佣金 + 最低佣金 + 单边滑点建模。
+# 均为 API 可覆盖的研究假设，结果必须随曲线返回，避免把费前收益当可执行收益。
+BACKTEST_FEE_RATE = 0.0003
+BACKTEST_MIN_FEE = 5.0
+BACKTEST_SLIPPAGE_RATE = 0.0005

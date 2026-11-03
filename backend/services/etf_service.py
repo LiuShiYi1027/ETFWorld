@@ -9,9 +9,8 @@ ETF 标的查找服务
 import json
 import logging
 import re
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Dict, List, Optional
+from datetime import date, datetime, timedelta
+from typing import Dict, List, Optional, Tuple
 
 from backend.config.settings import BASE_DIR
 from backend.services.tushare_init import get_pro
@@ -19,6 +18,7 @@ from backend.services.tushare_init import get_pro
 logger = logging.getLogger(__name__)
 
 CACHE_FILE = BASE_DIR / 'data' / 'etf_basic.json'
+_ADJ_PAGE_SIZE = 5000
 
 # 行业名 → 额外同义关键词（提升召回，ETF命名常与申万行业名不一致）
 ALIASES = {
@@ -59,7 +59,10 @@ class ETFService:
         self._basic: Optional[List[Dict]] = None
         self._amount_cache: Optional[Dict[str, Dict]] = None
         self._amount_cache_day: Optional[str] = None
-        self._adj_cache: Dict[str, Optional[Dict[str, float]]] = {}
+        self._amount_cache_at: Optional[datetime] = None
+        # (代码, 起始日, 截止日) → 因子；按自然日失效，refresh 也会清空。
+        self._adj_cache: Dict[tuple, Dict[str, float]] = {}
+        self._adj_cache_day: Dict[tuple, str] = {}
 
     def _load_basic(self, force: bool = False) -> List[Dict]:
         """加载全市场 ETF 基础信息（缓存到本地）"""
@@ -100,16 +103,21 @@ class ETFService:
     def refresh(self) -> int:
         self._amount_cache = None
         self._amount_cache_day = None
+        self._amount_cache_at = None
+        self._adj_cache.clear()
+        self._adj_cache_day.clear()
         return len(self._load_basic(force=True))
 
     def _latest_amounts(self) -> Dict[str, Dict]:
         """一次取全市场最新成交额（千元）与收盘价，用于流动性排序。
 
-        进程内只按自然日缓存：桌面应用常驻跨天时必须重取；休市期取不到
-        数据时不缓存空结果，避免之后开市仍一直返回空表。
+        进程内缓存最多 10 分钟并按自然日失效：收盘后发布的行情能及时刷新；
+        休市期取不到数据时不缓存空结果，避免之后开市仍一直返回空表。
         """
         today = datetime.now().strftime('%Y-%m-%d')
-        if self._amount_cache is not None and self._amount_cache_day == today:
+        cache_fresh = (self._amount_cache_at is not None
+                       and datetime.now() - self._amount_cache_at < timedelta(minutes=10))
+        if self._amount_cache is not None and self._amount_cache_day == today and cache_fresh:
             return self._amount_cache
         pro = get_pro()
         if pro is None:
@@ -126,32 +134,59 @@ class ETFService:
                     for _, r in df.iterrows()
                 }
                 self._amount_cache_day = today
+                self._amount_cache_at = datetime.now()
                 return self._amount_cache
         return {}
 
+    @staticmethod
+    def _canonical_benchmark(value: str) -> str:
+        value = re.sub(r'\s+', '', _clean_benchmark(value or ''))
+        value = re.sub(r'[×xX]\s*\d+(?:\.\d+)?%.*$', '', value)
+        return value.removesuffix('指数')
+
+    @classmethod
+    def _keyword_match(cls, b: Dict, keyword: str, aliases: List[str],
+                       code_query: Optional[str]) -> Optional[Tuple[str, float]]:
+        code = b.get('ts_code') or ''
+        if code_query and code.split('.')[0].startswith(code_query):
+            exact = len(code_query) == 6 and code.split('.')[0] == code_query
+            return ('exact_code', 1.0) if exact else ('code_prefix', 0.9)
+
+        name = b.get('name') or ''
+        benchmark = _clean_benchmark(b.get('benchmark'))
+        canonical_keyword = cls._canonical_benchmark(keyword)
+        canonical_benchmark = cls._canonical_benchmark(benchmark)
+        if canonical_keyword and canonical_keyword == canonical_benchmark:
+            return 'exact_benchmark', 0.98
+        if keyword and keyword == name:
+            return 'exact_name', 0.95
+        if keyword and keyword in benchmark:
+            return 'benchmark_match', 0.8
+        if keyword and keyword in name:
+            return 'name_match', 0.65
+        if any(alias in benchmark for alias in aliases):
+            return 'fuzzy_benchmark', 0.45
+        if any(alias in name for alias in aliases):
+            return 'fuzzy_name', 0.35
+        return None
+
     def search(self, keyword: str, limit: int = 20) -> List[Dict]:
-        """按关键词搜索 ETF（匹配代码/名称/跟踪基准），按成交额降序"""
+        """按代码/名称/基准搜索，并明确区分精确跟踪与模糊行业召回。"""
         kw = _clean_industry_name(keyword)
         if not kw:
             return []
-        keywords = [kw] + ALIASES.get(kw, [])
-        # 纯数字（可带交易所后缀）按代码前缀匹配：159938 / 159938.SZ → 159938.SZ
+        aliases = ALIASES.get(kw, [])
         m = re.fullmatch(r'(\d{1,6})(?:\.(?:SH|SZ))?', kw, re.IGNORECASE)
         kw_code = m.group(1) if m else None
-        basic = self._load_basic()
         matched = []
-        for b in basic:
-            if kw_code and (b.get('ts_code') or '').split('.')[0].startswith(kw_code):
-                matched.append(b)
-                continue
-            name = b['name'] or ''
-            bench = _clean_benchmark(b['benchmark'])
-            if any(k in name or k in bench for k in keywords):
-                matched.append(b)
+        for b in self._load_basic():
+            match = self._keyword_match(b, kw, aliases, kw_code)
+            if match:
+                matched.append((b, *match))
         amounts = self._latest_amounts()
 
         result = []
-        for b in matched:
+        for b, match_type, confidence in matched:
             a = amounts.get(b['ts_code'], {})
             amt = a.get('amount', 0) or 0
             result.append({
@@ -160,20 +195,29 @@ class ETFService:
                 'amount_wan': round(amt / 10, 1),      # 千元→万元
                 'amount_yi': round(amt / 100000, 3),   # 千元→亿元
                 'trade_date': a.get('trade_date'),
+                'match_type': match_type,
+                'match_confidence': confidence,
+                'is_exact_tracking': match_type == 'exact_benchmark',
             })
         result.sort(key=lambda x: x['amount_wan'] or 0, reverse=True)
         return result[:limit]
 
     def find_for_index(self, ts_code: str) -> Dict:
-        """为某个监控指数查找可交易 ETF"""
+        """为监控指数查找 ETF；模糊行业召回不得标记为已验证跟踪关系。"""
         from backend.services.watchlist_service import WatchlistService
         name = WatchlistService().name_map().get(ts_code, ts_code)
         keyword = _clean_industry_name(name)
+        etfs = self.search(keyword)
+        best = max(etfs, key=lambda x: x['match_confidence'], default=None)
+        verified = any(x['is_exact_tracking'] for x in etfs)
         return {
             'index_code': ts_code,
             'index_name': name,
             'keyword': keyword,
-            'etfs': self.search(keyword),
+            'etfs': etfs,
+            'match_type': best['match_type'] if best else 'unmatched',
+            'match_confidence': best['match_confidence'] if best else 0.0,
+            'mapping_status': 'verified' if verified else ('fuzzy' if etfs else 'unmatched'),
         }
 
     def _resolve_ts_code(self, symbol: str) -> Optional[str]:
@@ -188,20 +232,16 @@ class ETFService:
                 return b['ts_code']
         return None
 
-    def daily_bars(self, symbol: str, days: int = 250) -> List[tuple]:
-        """取某 ETF 近 days 个交易日的 (trade_date, close) 对（日期升序，前复权）。
-
-        用 fund_adj 复权因子把历史价格折算到当前份额口径：分红除权与份额拆分
-        不会被误判为暴跌（拆分日价格减半、份额翻倍，账户价值不变）。
-        无数据返回 []；取不到因子时降级为不复权。
-        """
+    def daily_raw_bars(self, symbol: str, days: int = 250) -> List[tuple]:
+        """取未复权日线，供按当时实际成交价复盘执行纪律。"""
         code = self._resolve_ts_code(symbol)
-        if not code:
-            return []
+        return self._daily_raw_rows(code, days) if code else []
+
+    def _daily_raw_rows(self, code: str, days: int) -> List[tuple]:
         pro = get_pro()
         if pro is None:
             return []
-        # 交易日 ≈ 日历日 × 0.7，留足缓冲再裁尾
+        # 交易日 ≈ 日历日 × 0.7，留足缓冲再裁尾。
         end = datetime.now().strftime('%Y%m%d')
         start = (datetime.now() - timedelta(days=int(days * 1.7) + 15)).strftime('%Y%m%d')
         try:
@@ -215,66 +255,165 @@ class ETFService:
                 for _, r in df.iterrows()
                 if r.get('close') == r.get('close') and r.get('close')]
         rows.sort(key=lambda x: x[0])
-        rows = self._apply_adj(rows, self._adj_factors(code))
         return rows[-days:]
 
-    def _adj_factors(self, ts_code: str) -> Optional[Dict[str, float]]:
-        """取基金复权因子（fund_adj，全历史，进程内缓存）。失败/无数据返回 None"""
-        if ts_code in self._adj_cache:
-            return self._adj_cache[ts_code]
+    def daily_bars_with_status(self, symbol: str, days: int = 250) -> Dict:
+        """前复权日线及数据状态；因子不可用时绝不返回未标记的原始价。"""
+        code = self._resolve_ts_code(symbol)
+        rows = self._daily_raw_rows(code, days) if code else []
+        if not rows:
+            return {'bars': [], 'adjustment_status': 'no_data',
+                    'adjustment_message': '日线数据不足'}
+        try:
+            factors = self._adj_factors(code, rows[0][0], rows[-1][0])
+            bars = self._apply_adj(rows, factors)
+        except ValueError as e:
+            return {'bars': [], 'adjustment_status': 'factor_unavailable',
+                    'adjustment_message': str(e)}
+        return {'bars': bars, 'adjustment_status': 'adjusted',
+                'adjustment_message': None}
+
+    def daily_bars(self, symbol: str, days: int = 250) -> List[tuple]:
+        """取前复权日线；因子缺失或覆盖不足时安全报错，不降级冒充复权。"""
+        result = self.daily_bars_with_status(symbol, days)
+        if result['adjustment_status'] == 'factor_unavailable':
+            raise ValueError(result['adjustment_message'])
+        return result['bars']
+
+    def _adj_factors(self, ts_code: str, start_date: Optional[str] = None,
+                     end_date: Optional[str] = None) -> Dict[str, float]:
+        """分页取完整日期范围内的复权因子，按范围和自然日缓存。"""
+        key = (ts_code, start_date or '', end_date or '')
+        today = datetime.now().strftime('%Y-%m-%d')
+        if key in self._adj_cache and self._adj_cache_day.get(key) == today:
+            return self._adj_cache[key]
         pro = get_pro()
-        factors = None
-        if pro is not None:
-            try:
-                df = pro.fund_adj(ts_code=ts_code)
-                if df is not None and not df.empty:
-                    factors = {str(r['trade_date']): float(r['adj_factor'])
-                               for _, r in df.iterrows()
-                               if r.get('adj_factor') == r.get('adj_factor') and r.get('adj_factor')}
-            except Exception as e:  # noqa: BLE001 — 取不到因子时降级为不复权
-                logger.warning('fund_adj 失败 %s: %s（按不复权处理）', ts_code, e)
-        self._adj_cache[ts_code] = factors
+        if pro is None:
+            raise ValueError('复权因子数据源不可用，无法生成前复权价格')
+
+        factors: Dict[str, float] = {}
+        offset = 0
+        previous_page = None
+        try:
+            while True:
+                params = {'ts_code': ts_code, 'limit': _ADJ_PAGE_SIZE, 'offset': offset}
+                if start_date:
+                    params['start_date'] = start_date
+                if end_date:
+                    params['end_date'] = end_date
+                df = pro.fund_adj(**params)
+                if df is None or df.empty:
+                    break
+                page = [(str(r['trade_date']), float(r['adj_factor']))
+                        for _, r in df.iterrows()
+                        if r.get('adj_factor') == r.get('adj_factor')
+                        and r.get('adj_factor') and float(r['adj_factor']) > 0]
+                signature = tuple(page)
+                if signature and signature == previous_page:
+                    raise ValueError('复权因子分页重复，无法确认完整覆盖')
+                factors.update(page)
+                if len(df) < _ADJ_PAGE_SIZE:
+                    break
+                previous_page = signature
+                offset += len(df)
+        except ValueError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.warning('fund_adj 失败 %s: %s', ts_code, e)
+            raise ValueError(f'复权因子获取失败: {e}') from e
+
+        self._adj_cache[key] = factors
+        self._adj_cache_day[key] = today
         return factors
 
     @staticmethod
     def _apply_adj(rows: List[tuple], factors: Optional[Dict[str, float]]) -> List[tuple]:
-        """前复权：close × 当日因子 ÷ 最新因子。因子按 asof 匹配（≤当日最近一条）"""
-        if not rows or not factors:
-            return rows
+        """前复权：close × 当日因子 ÷ 末日因子；首尾覆盖不足即报错。"""
+        if not rows:
+            return []
+        if not factors:
+            raise ValueError('复权因子缺失，拒绝以未复权价格冒充前复权结果')
+        if any(f <= 0 for f in factors.values()):
+            raise ValueError('复权因子存在非正值，无法生成前复权价格')
+        first_day, last_day = rows[0][0], rows[-1][0]
         fdates = sorted(factors)
-        latest = factors[fdates[-1]]
-        if latest <= 0:
-            return rows
+        if fdates[0] > first_day or fdates[-1] < last_day:
+            raise ValueError(
+                f'复权因子覆盖不足: 日线 {first_day}~{last_day}，'
+                f'因子 {fdates[0]}~{fdates[-1]}')
         from bisect import bisect_right
 
         def f_at(d):
             i = bisect_right(fdates, d) - 1
-            return factors[fdates[i]] if i >= 0 else factors[fdates[0]]
+            if i < 0:
+                raise ValueError(f'{d} 之前无可用复权因子')
+            return factors[fdates[i]]
+
+        latest = f_at(last_day)
         return [(d, round(c * f_at(d) / latest, 4)) for d, c in rows]
 
+    def corporate_action_check(self, symbol: str, since_date: str) -> Dict:
+        """检查计划创建日后的因子变化；数据不足时保守要求暂停旧网格。"""
+        compact = str(since_date or '')[:10].replace('-', '')
+        try:
+            since = datetime.strptime(compact, '%Y%m%d').strftime('%Y%m%d')
+        except ValueError as e:
+            raise ValueError('计划创建日期格式无效') from e
+        end = datetime.now().strftime('%Y%m%d')
+        code = self._resolve_ts_code(symbol)
+        base = {'ts_code': code, 'since_date': since, 'as_of_date': end,
+                'changes': [], 'latest_factor': None, 'message': None}
+        try:
+            if not code:
+                raise ValueError('无法识别 ETF 代码，公司行动状态未知')
+            factors = self._adj_factors(code, end_date=end)
+            dates = sorted(factors)
+            if not dates:
+                raise ValueError('复权因子为空，公司行动状态未知')
+            baseline_dates = [d for d in dates if d <= since]
+            if not baseline_dates:
+                raise ValueError('缺少计划创建日基准复权因子，公司行动状态未知')
+            previous = factors[baseline_dates[-1]]
+            changes = []
+            for d in dates:
+                if d <= since:
+                    continue
+                current = factors[d]
+                if current != previous:
+                    changes.append({'trade_date': d, 'old_factor': previous,
+                                    'new_factor': current})
+                previous = current
+            return {**base, 'status': 'ok', 'has_changed': bool(changes),
+                    'pause_required': bool(changes), 'changes': changes,
+                    'latest_factor': factors[dates[-1]]}
+        except ValueError as e:
+            return {**base, 'status': 'unavailable', 'has_changed': None,
+                    'pause_required': True, 'message': str(e)}
+
     def daily_closes(self, symbol: str, days: int = 250) -> List[float]:
-        """取某 ETF 近 days 个交易日的收盘价（升序）。无 Tushare 或无数据返回 []。"""
+        """取前复权收盘价；因子缺失或覆盖不足时显式报错。"""
         return [c for _, c in self.daily_bars(symbol, days)]
 
     def quotes(self, symbols: List[str]) -> Dict[str, Dict]:
-        """批量取若干 ETF 的最新收盘价（用于驾驶舱计划健康）。
-
-        计划里 symbol 多为不带交易所后缀的代码（如 512880），fund_daily 的
-        ts_code 带后缀（512880.SH），这里按前缀匹配。无 Tushare 时返回 close=None，
-        前端可退化用最后一笔成交价。
-        """
+        """批量取最新收盘价，并提供今日执行侧所需的陈旧行情判断。"""
         amounts = self._latest_amounts()
         by_prefix = {}
         for code, info in amounts.items():
             by_prefix[code.split('.')[0]] = (code, info)
+        as_of = max((str(info.get('trade_date') or '') for info in amounts.values()),
+                    default='') or None
         out = {}
         for s in symbols:
             key = str(s).split('.')[0]
             hit = by_prefix.get(key)
-            if hit:
-                code, info = hit
-                out[s] = {'ts_code': code, 'close': info.get('close'),
-                          'trade_date': info.get('trade_date')}
+            code, info = hit if hit else (None, {})
+            trade_date = info.get('trade_date')
+            if not trade_date or not as_of:
+                stale, reason = True, 'missing_trade_date'
             else:
-                out[s] = {'ts_code': None, 'close': None, 'trade_date': None}
+                stale = str(trade_date) != as_of
+                reason = 'not_latest_market_date' if stale else None
+            out[s] = {'ts_code': code, 'close': info.get('close'),
+                      'trade_date': trade_date, 'stale': stale,
+                      'stale_reason': reason, 'as_of_date': as_of}
         return out

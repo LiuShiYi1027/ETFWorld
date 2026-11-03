@@ -1,11 +1,10 @@
-"""
-网格就绪度评估
+"""网格就绪度评估
 
 回答核心问题：一个指数现在能不能开网格？
 
 判断逻辑（E大网格理念）：
-  ① 估值安全垫（最重要）：估值分位越低越安全。分位>50% 直接否决。
-  ② 波动充足度：年化波动率越大，网格越赚钱，也决定格距大小。
+  ① 估值位置（最重要）：分位越低通常越有利，但低估不等于不会继续下跌。
+  ② 波动适配度：波动过低难以触发网格，过高则意味着额外风险。
   ③ 行业不死：由标的选择保证（监控池均为不死行业）。
 
 综合评分 0-100，给出"适合/观望/不建议"结论与建议网格参数。
@@ -39,7 +38,7 @@ def _CATEGORY() -> Dict:
 
 
 def _annualized_volatility(prices: List[float]) -> Optional[float]:
-    """由价格(或PE)序列计算年化波动率（日对数收益率标准差 × √252）"""
+    """由真实价格序列计算年化波动率（日对数收益率标准差 × √252）"""
     series = [p for p in prices if p and p > 0]
     if len(series) < 60:
         return None
@@ -50,10 +49,22 @@ def _annualized_volatility(prices: List[float]) -> Optional[float]:
     return math.sqrt(var) * math.sqrt(252)
 
 
+def _volatility_score(volatility: Optional[float]) -> float:
+    """波动适配分：低于 12% 不得分，15%-40% 满分，40%-80% 逐步惩罚。"""
+    if volatility is None or volatility < 0.12:
+        return 0.0
+    if volatility < 0.15:
+        return (volatility - 0.12) / 0.03 * 30
+    if volatility <= 0.40:
+        return 30.0
+    return max(0.0, (0.80 - volatility) / 0.40 * 30)
+
+
 def _suggest_grid(volatility: Optional[float]) -> Dict:
-    """根据年化波动率建议格距（波动大→格距大）"""
+    """根据真实价格的年化波动率建议格距（波动大→格距大）"""
     if volatility is None:
-        return {'grid_step': 5, 'grid_count': 10, 'note': '波动数据不足，用默认参数'}
+        return {'grid_step': None, 'grid_count': None,
+                'note': '真实收盘价不足，暂不提供网格参数'}
     v = volatility * 100
     if v < 15:
         step = 3
@@ -99,20 +110,20 @@ class ReadinessService:
             cur = session.query(ValuationTable).filter_by(
                 ts_code=ts_code, trade_date=latest_date).first()
 
-            # 估值分位（优先5年，缺则用全部）；全周期分位一并取出，供 AI 研判上下文
+            # 估值分位（优先5年，缺则用全部）；空记录不能遮挡可用的全周期分位
             pct_map = {r.period: r for r in session.query(ValuationPercentileTable)
                        .filter_by(ts_code=ts_code, trade_date=latest_date).all()}
-            pct = pct_map.get('5y') or pct_map.get('all')
+            pct = next((pct_map[p] for p in ('5y', 'all')
+                        if p in pct_map and (pct_map[p].pe_percentile is not None
+                                             or pct_map[p].pb_percentile is not None)), None)
 
-            # 波动率：用近250日收盘价，无收盘价则用PE序列代理
-            rows = session.query(ValuationTable.close_price, ValuationTable.pe_ttm) \
+            # 波动与动量只能使用真实收盘价；估值序列不能作为价格代理。
+            rows = session.query(ValuationTable.close_price) \
                 .filter(ValuationTable.ts_code == ts_code) \
                 .order_by(ValuationTable.trade_date.desc()).limit(250).all()
             closes = [float(r[0]) for r in rows if r[0] is not None]
-            pes = [float(r[1]) for r in rows if r[1] is not None]
-            vol = _annualized_volatility(list(reversed(closes))) \
-                if len(closes) >= 60 else _annualized_volatility(list(reversed(pes)))
-            vol_is_proxy = len(closes) < 60
+            vol = _annualized_volatility(list(reversed(closes)))
+            vol_is_proxy = False
 
             # PE/PB 全历史中位数（AI 研判上下文用）
             pe_all = [float(r[0]) for r in session.query(ValuationTable.pe_ttm)
@@ -133,32 +144,39 @@ class ReadinessService:
 
         if valuation_pct is None:
             val_score = 0
-            reasons.append('缺少估值分位数据，无法评估安全垫')
+            reasons.append('缺少估值分位数据，无法评估估值位置')
         else:
             val_score = (100 - valuation_pct) / 100 * 70
             if valuation_pct < 30:
-                reasons.append(f'估值分位 {valuation_pct:.0f}%，处于低估区，安全垫厚 ✓')
+                reasons.append(f'估值分位 {valuation_pct:.0f}%，处于历史低位，但仍可能继续下跌')
             elif valuation_pct < 50:
-                reasons.append(f'估值分位 {valuation_pct:.0f}%，偏低，安全垫一般')
+                reasons.append(f'估值分位 {valuation_pct:.0f}%，历史位置偏低，不代表无下跌风险')
             else:
                 reasons.append(f'估值分位 {valuation_pct:.0f}%，偏高，下跌风险大 ✗')
 
-        # 波动充足度 0-30
+        # 波动适配度 0-30：过低不满足网格条件，过高施加风险惩罚
         if vol is None:
             vol_score = 0
-            reasons.append('波动数据不足')
+            reasons.append('真实收盘价不足，无法评估波动')
         else:
-            vol_score = min(vol / 0.40, 1.0) * 30
-            tag = '（PE代理估算）' if vol_is_proxy else ''
-            reasons.append(f'年化波动率 {vol*100:.1f}%{tag}')
+            vol_score = _volatility_score(vol)
+            reasons.append(f'年化波动率 {vol*100:.1f}%')
+            if vol < 0.12:
+                reasons.append('波动不足，网格难以有效触发')
+            elif vol > 0.40:
+                reasons.append('波动过高，已计入高风险惩罚')
 
         score = round(val_score + vol_score, 1)
 
         # ---- 结论（估值分位硬门槛） ----
-        if valuation_pct is None:
+        if valuation_pct is None or vol is None:
             verdict, level = '数据不足', 'unknown'
         elif valuation_pct > VALUATION_VETO:
             verdict, level = '不建议（估值偏高）', 'no'
+        elif vol > 0.80:
+            verdict, level = '不建议（波动过高）', 'no'
+        elif vol < 0.12:
+            verdict, level = '观望（波动不足）', 'wait'
         elif valuation_pct < 30 and score >= 60:
             verdict, level = '适合开启', 'go'
         elif valuation_pct < 40:

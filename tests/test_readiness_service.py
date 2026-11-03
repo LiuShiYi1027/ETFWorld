@@ -6,7 +6,7 @@ import pytest
 from backend.models.database import (Base, ValuationPercentileTable,
                                      ValuationTable)
 from backend.utils.db import engine, get_session, init_db
-from backend.services.readiness_service import ReadinessService
+from backend.services.readiness_service import ReadinessService, _volatility_score
 from backend.services.watchlist_service import WatchlistService
 
 
@@ -48,3 +48,33 @@ class TestNoDataStub:
         assert test_row['valuation_percentile'] == 15.0  # (10+20)/2
         assert rows[-1]['score'] == -1  # 占位行沉底
         assert rows.index(test_row) < len(rows) - 41  # 排所有占位行之前
+
+
+class TestRealPriceVolatility:
+    def test_pe_series_is_not_used_when_close_is_missing(self):
+        WatchlistService().add('NOCLOSE.SH', '无收盘价宽基', '宽基', 'index')
+        today = date(2026, 8, 10)
+        with get_session() as session:
+            for i in range(100):
+                session.add(ValuationTable(
+                    ts_code='NOCLOSE.SH', trade_date=today - timedelta(days=99 - i),
+                    close_price=None, pe_ttm=10 + (i % 9), pb=1.5))
+            session.add(ValuationPercentileTable(
+                ts_code='NOCLOSE.SH', trade_date=today, period='5y',
+                pe_percentile=10.0, pb_percentile=20.0, sample_count=100))
+
+        result = ReadinessService().assess('NOCLOSE.SH')
+        assert result['volatility'] is None
+        assert result['volatility_is_proxy'] is False
+        assert result['level'] == 'unknown'
+        assert result['verdict'] == '数据不足'
+        assert result['suggested_grid']['grid_step'] is None
+        assert result['suggested_grid']['grid_count'] is None
+        assert '不足' in result['suggested_grid']['note']
+
+    def test_volatility_score_penalizes_low_and_excessive_risk(self):
+        normal = _volatility_score(0.25)
+        assert normal == 30
+        assert _volatility_score(0.10) == 0
+        assert 0 < _volatility_score(0.70) < normal
+        assert _volatility_score(0.90) == 0

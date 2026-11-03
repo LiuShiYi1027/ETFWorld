@@ -30,6 +30,20 @@ class _FakeEtf:  # 不会被调用：测试都注入 prices
         raise AssertionError('测试不应触发网络取价')
 
 
+class _QuoteEtf:
+    def __init__(self, quote=None, corporate=None):
+        self.quote = quote
+        self.corporate = corporate
+        self.corporate_calls = []
+
+    def quotes(self, symbols):
+        return {s: self.quote for s in symbols}
+
+    def corporate_action_check(self, symbol, since_date):
+        self.corporate_calls.append((symbol, since_date))
+        return self.corporate
+
+
 def _make_today(readiness_rows=()):
     grid, trade, pf = GridService(), TradeService(), PortfolioService()
     svc = TodayService(grid, trade, _FakeEtf(), _FakeReadiness(list(readiness_rows)), pf)
@@ -106,6 +120,22 @@ class TestTodos:
         sells = [t for t in r['todos'] if t['direction'] == 'sell']
         assert len(sells) == 1 and sells[0]['level'] == 2
         assert sells[0]['dist_pct'] <= 2.0
+
+    def test_uncovered_partial_sell_todo_caps_to_remaining_shares(self):
+        """亏损部分卖出后仍持有，不能把计划卖出份额再次超卖。"""
+        grid, trade, svc = _make_today()
+        p = _add_plan(grid)
+        trade.add_trade({'plan_id': p['id'], 'symbol': '512880',
+                         'trade_date': '2026-07-10', 'direction': 'buy',
+                         'price': 1.15, 'shares': 1000, 'grid_level': 1})
+        trade.add_trade({'plan_id': p['id'], 'symbol': '512880',
+                         'trade_date': '2026-07-11', 'direction': 'sell',
+                         'price': 1.0, 'shares': 900, 'grid_level': 1})
+        r = svc.today(near_pct=2.0, prices={'512880': 1.22})
+        sells = [t for t in r['todos'] if t['direction'] == 'sell']
+        assert len(sells) == 1
+        assert sells[0]['level'] == 1 and sells[0]['shares'] == 100
+        assert sells[0]['amount'] == round(sells[0]['price'] * 100, 2)
 
     def test_no_prices_no_todos(self):
         grid, _, svc = _make_today()
@@ -245,3 +275,59 @@ class TestDcaTodos:
         _add_plan(grid)
         r = svc.today(prices={'512880': 1.10})
         assert r['dca_todos'] == []
+
+
+class TestMarketDataSafety:
+    def test_stale_quote_keeps_date_but_blocks_todo_and_broken_alert(self):
+        grid, _, svc = _make_today()
+        _add_plan(grid)
+        svc.etf = _QuoteEtf(quote={
+            'ts_code': '512880.SH', 'close': 1.0, 'trade_date': '20260710',
+            'stale': True, 'stale_reason': 'not_current_trade_date',
+            'as_of_date': '2026-07-11',
+        })
+        r = svc.today(near_pct=2.0)
+        assert r['todos'] == []
+        assert r['alerts']['broken'] == []
+        assert r['quotes']['512880']['trade_date'] == '20260710'
+        assert r['quotes']['512880']['stale'] is True
+        assert r['health'][0]['quote_date'] == '20260710'
+        assert r['health'][0]['stale_reason'] == 'not_current_trade_date'
+        assert r['health'][0]['next_buy'] is None
+        assert r['health'][0]['next_sell'] is None
+
+    def test_factor_change_pauses_old_grid_and_requires_review(self):
+        grid, _, svc = _make_today()
+        p = _add_plan(grid)
+        changes = [{'trade_date': '20260711', 'old_factor': 1.0, 'new_factor': 2.0}]
+        svc.etf = _QuoteEtf(corporate={
+            'ts_code': '512880.SH', 'since_date': '20260710',
+            'as_of_date': '20260711', 'status': 'ok', 'has_changed': True,
+            'pause_required': True, 'changes': changes, 'latest_factor': 2.0,
+            'message': None,
+        })
+        r = svc.today(near_pct=2.0, prices={'512880': 1.15})
+        assert grid.get_plan(p['id'])['status'] == 'paused'
+        assert r['todos'] == []
+        alert = r['alerts']['corporate_action'][0]
+        assert alert['needs_review'] is True
+        assert alert['has_changed'] is True
+        assert alert['changes'] == changes
+        created_at = grid.get_plan(p['id'])['created_at']
+        assert svc.etf.corporate_calls == [('512880', created_at[:10])]
+
+    def test_unavailable_factor_check_fails_closed(self):
+        grid, _, svc = _make_today()
+        p = _add_plan(grid)
+        svc.etf = _QuoteEtf(corporate={
+            'ts_code': '512880.SH', 'since_date': '20260710',
+            'as_of_date': '20260711', 'status': 'unavailable',
+            'has_changed': None, 'pause_required': True, 'changes': [],
+            'latest_factor': None, 'message': '复权因子缺失',
+        })
+        r = svc.today(near_pct=2.0, prices={'512880': 1.15})
+        assert grid.get_plan(p['id'])['status'] == 'paused'
+        assert r['todos'] == []
+        alert = r['alerts']['corporate_action'][0]
+        assert alert['has_changed'] is None
+        assert alert['needs_review'] is True

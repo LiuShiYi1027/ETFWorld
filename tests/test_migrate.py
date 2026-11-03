@@ -115,3 +115,19 @@ def test_old_db_gets_app_meta_table(tmp_path):
             text("SELECT name FROM sqlite_master WHERE type='table'"))}
     assert 'app_meta' in tables
     assert _user_version(eng) == migrate.SCHEMA_VERSION
+
+
+def test_old_db_gets_persistent_rotation_signals(tmp_path):
+    """迁移 6：周期信号及其行情/下一交易日日期列完整。"""
+    eng = _make_engine(tmp_path / 'old6.db')
+    _create_v1_grid_plans(eng)
+    Base.metadata.create_all(eng)
+    migrate.run_migrations(eng)
+    with eng.connect() as c:
+        tables = {r[0] for r in c.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table'"))}
+    assert 'rotation_signals' in tables
+    assert {'signal_date', 'market_date', 'earliest_trade_date', 'momentum'} \
+        <= _cols(eng, 'rotation_signals')
+    assert migrate.SCHEMA_VERSION == 6
+    assert _user_version(eng) == 6

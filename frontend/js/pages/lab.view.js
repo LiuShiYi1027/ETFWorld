@@ -60,7 +60,7 @@ export const LabView = {
           </tr>
         </tbody>
       </table>
-      <div class="note" style="padding:8px 0 0;">净值口径：同一 10 万预算，未投入的钱计为账户现金；定投按关联指数时点分位调整金额。未计手续费，历史不代表未来。</div>
+      <div class="note" style="padding:8px 0 0;">净值口径：同一 10 万预算，未投入的钱计为账户现金；所有策略与持有基准均计入建仓成本。单边佣金率 {{ labResult.cost_assumptions.fee_rate * 100 }}%（最低 {{ labResult.cost_assumptions.min_fee }} 元/笔），单边滑点 {{ labResult.cost_assumptions.slippage_rate * 100 }}%。</div>
     </div>
   </div>
 
@@ -109,6 +109,7 @@ export const LabView = {
           </tr>
         </tbody>
       </table>
+      <div class="note" style="padding:8px 0 0;">信号在调仓周期首日收盘后生成，下一交易日成交；轮动与持有基准使用同一费后现金口径。</div>
     </div>
   </div>
 

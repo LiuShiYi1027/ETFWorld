@@ -6,8 +6,8 @@
 - 现金 = 本金 − 全部持仓净成本 + 已实现净额（移动加权平均口径，由成交记录推导；
   止盈/止损的盈亏是真实现金流，必须计入弹药水位）
 - 底仓 = plan_id 为空的手工持仓；网格持仓 = plan_id 非空的持仓
-- 留存底仓 = 网格卖出后留在档位上的份额（该档 买−卖 净额），是网格持仓的子集，
-  三账户展示时从网格持仓中拆出单列（成本视为 0 的"免费"份额）
+- 留存底仓 = 网格卖出净回款（扣卖出费用）已覆盖该档全部买入成本（含买入费用）后，
+  该档仍剩余的份额；只有这部分份额在留存视图中成本为 0
 - 安全线 = ACTIVE + PAUSED 计划"剩余补网资金"合计 ÷ 本金（已买入/留存档不再重复计提）
 """
 import logging
@@ -91,8 +91,9 @@ class PortfolioService:
 
         # ---- 按 (symbol, plan_id) 聚合持仓（移动加权成本，与 trade_service 同口径） ----
         groups: Dict = {}
-        retained: Dict = {}  # (symbol, plan_id) → 留存份额
-        level_net: Dict = {}  # (symbol, plan_id, grid_level) → [buy, sell]
+        retained: Dict = {}  # (symbol, plan_id) → 已收回全部档位成本后的剩余份额
+        # [买入份额, 卖出份额, 买入成本(含费), 卖出净回款(扣费)]
+        level_net: Dict = {}
         for t in trades:
             key = (t.symbol, t.plan_id)
             pos = groups.setdefault(key, {
@@ -109,12 +110,19 @@ class PortfolioService:
                 pos['cost'] -= avg_cost * shares
                 pos['shares'] -= shares
             if t.plan_id is not None and t.grid_level is not None:
-                lv = level_net.setdefault((t.symbol, t.plan_id, t.grid_level), [0.0, 0.0])
-                lv[0 if t.direction == 'buy' else 1] += shares
+                lv = level_net.setdefault(
+                    (t.symbol, t.plan_id, t.grid_level), [0.0, 0.0, 0.0, 0.0])
+                if t.direction == 'buy':
+                    lv[0] += shares
+                    lv[2] += price * shares + fee
+                else:
+                    lv[1] += shares
+                    lv[3] += price * shares - fee
 
-        # 留存份额 = 有卖出记录的档位的净剩余份额（网格 2.0 的免费底仓）
-        for (symbol, plan_id, _level), (bought, sold) in level_net.items():
-            if sold > 0 and bought - sold > 0:
+        # “免费”仅指本金及费用已由该档净卖出回款收回；未覆盖成本的亏损/部分卖出残余
+        # 仍是普通网格持仓。总成本与已实现收益继续使用移动加权口径，不因展示拆列而重算。
+        for (symbol, plan_id, _level), (bought, sold, buy_cost, net_proceeds) in level_net.items():
+            if sold > 0 and bought - sold > 1e-6 and net_proceeds + 1e-6 >= buy_cost:
                 key = (symbol, plan_id)
                 retained[key] = retained.get(key, 0.0) + (bought - sold)
 
@@ -136,13 +144,14 @@ class PortfolioService:
             plan = plans.get(plan_id)
             pos['plan_name'] = plan.name if plan else f'#{plan_id}'
             pos['plan_status'] = plan.status if plan else None
-            # 留存拆出：份额与市值单列，成本记 0（利润沉淀）
+            # 留存是已回本份额的展示子集；其成本为 0，但总账仍保留移动加权成本与收益。
             ret_shares = min(retained.get((symbol, plan_id), 0.0), pos['shares'])
             if ret_shares > 0:
                 retained_items.append({
                     'symbol': symbol, 'symbol_name': pos['symbol_name'],
                     'plan_id': plan_id, 'plan_name': pos['plan_name'],
                     'shares': round(ret_shares, 2),
+                    'cost': 0.0,
                     'market_value': round(cur * ret_shares, 2) if cur else None,
                 })
             pos['retained_shares'] = round(ret_shares, 2)
@@ -186,6 +195,7 @@ class PortfolioService:
                 'grid': {'cost': round(sum(p['cost'] for p in grid if p['shares'] > 0), 2),
                          'market_value': _mv(grid), 'positions': grid},
                 'retained': {'shares': round(sum(i['shares'] for i in retained_items), 2),
+                             'cost': 0.0,
                              'market_value': _mv(retained_items), 'items': retained_items},
             },
             'grid_full_capital': round(full_capital, 2),
