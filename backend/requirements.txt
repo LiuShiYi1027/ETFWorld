@@ -1,6 +1,7 @@
 # ETFWorld 后端依赖
 sqlalchemy>=2.0
 tushare>=1.2.89
+six>=1.16  # 部分 Tushare 版本会导入 trader 模块，但未声明 six 依赖
 pandas>=1.5
 python-dotenv>=1.0
 fastapi>=0.100
